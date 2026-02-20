@@ -9,6 +9,7 @@ A project-agnostic autonomous research loop for Claude Code. Provides intelligen
 | `search_papers.py` | Claude agent with web search: finds, evaluates, and ranks papers |
 | `run_and_wait.sh` | Bash wrapper: runs experiment, writes `.done` marker on completion |
 | `state.py` | CLI: persistent JSON state + auto-updates `progress.md` |
+| `git_ops.py` | Git workflow: branch per iteration, structured commits, merge best to main |
 | `protocol.md` | Research loop protocol template (append to your CLAUDE.md) |
 
 ## Requirements
@@ -74,7 +75,60 @@ Output format:
 ]
 ```
 
-### 4. Agent runs experiment iterations
+### 4. Git tracks every change
+
+Each iteration is a **git branch** with structured commits. Code changes are committed *before* the experiment runs (so nothing is lost), and results are committed after.
+
+```bash
+# Create branch for iteration 3
+python -m research_agent.git_ops branch-start --iteration 3 --change "enable token-wise FiLM"
+
+# After making code changes:
+python -m research_agent.git_ops commit-code --iteration 3 \
+  --hypothesis "Token-wise FiLM enables per-token adaptation" \
+  --change "cond_scale_tokenwise=True" \
+  --papers "FiLM 2018" "AdaptFormer 2022"
+
+# Push to GitLab before experiment starts:
+python -m research_agent.git_ops push
+
+# ... experiment runs ...
+
+# After results are in:
+python -m research_agent.git_ops commit-results --iteration 3 --state state.json
+
+# If it's the new best, merge to main:
+python -m research_agent.git_ops merge-best --state state.json
+python -m research_agent.git_ops push
+```
+
+The commit messages encode the full context:
+```
+iter/3: cond_scale_tokenwise=True
+
+Hypothesis: Token-wise FiLM enables per-token adaptation
+Change: cond_scale_tokenwise=True
+Papers: FiLM 2018, AdaptFormer 2022
+Checkpoint: checkpoints/exp_tokenfilm
+
+Status: experiment pending
+```
+
+```
+iter/3: results — test_3d_dice: 0.918 (+0.0130)
+
+Results:
+  test_3d_dice: 0.918 (+0.0130 vs baseline)
+  test_3d_nsd: 0.951 (+0.0110 vs baseline)
+
+Hypothesis: Token-wise FiLM enables per-token adaptation
+Change: cond_scale_tokenwise=True
+Feedback: significant gain, new best
+
+*** NEW BEST ***
+```
+
+### 5. Agent runs experiment iterations
 
 Each iteration: search literature, implement one change, run experiment, record results. Every state change auto-updates `progress.md`, so the user can check progress at any time.
 
