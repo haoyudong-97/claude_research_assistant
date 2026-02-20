@@ -1,0 +1,20 @@
+{
+  "name": "research_agent",
+  "version": "1.0.0",
+  "description": "A project-agnostic autonomous research loop for Claude Code. Provides intelligent literature search via a Claude agent, experiment tracking, and a protocol that Claude follows to iteratively improve ML experiments.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://oauth2:glpat-n5ulbw2Viz1qDUERU3_PQG86MQp1OjQyOAk.01.0z0inxs4b@gitlab.oit.duke.edu/mazurowski/research-agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.49"
+  }
+}

@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
+node_modules/
 state.json
 progress.md
 results/

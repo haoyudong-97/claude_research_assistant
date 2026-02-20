@@ -6,7 +6,8 @@ A project-agnostic autonomous research loop for Claude Code. Provides intelligen
 
 | File | Purpose |
 |------|---------|
-| `search_papers.py` | Claude agent with web search: finds, evaluates, and ranks papers |
+| `search_papers.py` | CLI entry point: builds prompt, calls search_agent.mjs |
+| `search_agent.mjs` | Claude Code SDK agent: WebSearch, evaluates, ranks papers |
 | `run_and_wait.sh` | Bash wrapper: runs experiment, writes `.done` marker on completion |
 | `state.py` | CLI: persistent JSON state + auto-updates `progress.md` |
 | `git_ops.py` | Git workflow: branch per iteration, structured commits, merge best to main |
@@ -15,8 +16,9 @@ A project-agnostic autonomous research loop for Claude Code. Provides intelligen
 ## Requirements
 
 - Python 3.10+ (uses `int | None` syntax)
-- `ANTHROPIC_API_KEY` environment variable set
-- No additional Python dependencies (uses only stdlib `urllib`, `json`)
+- Node.js 18+ (for the Claude Agent SDK)
+- `@anthropic-ai/claude-agent-sdk` npm package (install: `cd research_agent && npm install`)
+- `ANTHROPIC_API_KEY` environment variable (get from https://console.anthropic.com/)
 
 ## How It Works
 
@@ -40,7 +42,7 @@ python -m research_agent.state init --progress progress.md --metric test_3d_dice
 
 ### 3. Literature search via Claude agent
 
-Paper search is done by a **Claude agent** that calls the Anthropic API with web search enabled. The agent:
+Paper search is done by a **Claude agent** via the `@anthropic-ai/claude-agent-sdk`. Requires `ANTHROPIC_API_KEY`. The agent:
 
 - Reads `progress.md` and `state.json` to understand the project
 - Plans 3-5 specific search queries targeting different angles of the topic
@@ -50,8 +52,6 @@ Paper search is done by a **Claude agent** that calls the Anthropic API with web
 - Writes structured JSON results
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
 python research_agent/search_papers.py \
   "Householder orthogonal adapters for parameter-efficient fine-tuning" \
   results/search_iter1.json \
@@ -168,8 +168,10 @@ After each iteration, `progress.md` looks like:
 ### Search for papers
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+# One-time setup:
+cd research_agent && npm install && cd ..
 
+# Search:
 python research_agent/search_papers.py \
   "parameter efficient fine-tuning medical segmentation SAM" \
   results/search.json \
