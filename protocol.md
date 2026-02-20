@@ -57,16 +57,17 @@ main                          ← always has the best-performing code
    python -m research_agent.state read
    ```
 
-2. **Search literature** — use `claude -p` (pipe mode) to find relevant papers:
+2. **Search literature** — use the Python search tool (Semantic Scholar + arXiv):
    ```
    python research_agent/search_papers.py \
      "orthogonal adapter Gram-preserving fine-tuning for ViT" \
      results/search_iter3.json \
-     --progress progress.md --state state.json
+     --limit 10 --year-min 2023
    ```
-   - The topic must be specific to this iteration's technique.
-   - Review results; focus on papers with relevance >= 4.
-   - Uses your Max subscription, no extra API cost.
+   - The query must be specific to this iteration's technique.
+   - Use `--related-to <arxiv_id>` to find papers related to a known one.
+   - Read the JSON results, evaluate relevance to the project, pick top papers.
+   - Supplement with your own WebSearch if the APIs miss key papers.
 
 3. **Form hypothesis** — based on papers + previous results.
 

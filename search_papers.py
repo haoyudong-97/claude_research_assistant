@@ -1,246 +1,290 @@
 #!/usr/bin/env python3
-"""Search for papers using Claude Code in pipe mode (claude -p).
+"""Search for academic papers via Semantic Scholar + arXiv APIs.
 
-Uses your existing Claude Code CLI auth (Max subscription). No separate API
-key needed. The agent gets WebSearch, WebFetch, and Read tools.
+Pure Python, no external dependencies. Both APIs are free and need no auth.
+Returns structured JSON that the Claude session can evaluate for relevance.
 
 Usage:
-    python search_papers.py "topic" output.json
-    python search_papers.py "topic" output.json --progress progress.md --state state.json
+    python research_agent/search_papers.py "query terms" output.json
+    python research_agent/search_papers.py "query" output.json --limit 10 --year-min 2022
+    python research_agent/search_papers.py "query" output.json --state state.json
 
 Output:
     Writes JSON array to output.json with fields:
-        title, authors, year, abstract, url, arxiv_id,
-        relevance (1-5), relevance_reason, key_idea
+        title, authors, year, abstract, url, arxiv_id, citations, source
 """
 
 import argparse
 import json
-import subprocess
+import re
 import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-SYSTEM_INSTRUCTIONS = """\
-You are a research paper search agent for an ML project. Your ONLY job is to \
-find academic papers relevant to a specific topic within the project's context.
 
-## Instructions
+# ── Semantic Scholar ─────────────────────────────────────────────────
 
-1. **Understand the project**: Read the project context provided. Understand what \
-the project does, what has been tried, and what the current research direction is.
-
-2. **Plan search queries**: Based on the topic and project context, plan 3-5 \
-specific search queries. Each query should target a different angle:
-   - The core technique/method mentioned in the topic
-   - The technique applied to the project's domain (e.g., medical image segmentation)
-   - Related or alternative approaches to the same problem
-   - Key author names or paper titles if you recognize them
-
-3. **Execute searches**: Use WebSearch for each query. For particularly relevant \
-results, use WebFetch to read the abstract or paper page for more detail.
-
-4. **Evaluate relevance**: For each paper found, score its relevance (1-5):
-   - 5: Directly applicable — describes the exact technique or a close variant
-   - 4: Highly relevant — same problem domain and approach category
-   - 3: Relevant — useful background or related technique
-   - 2: Tangentially related
-   - 1: Not relevant
-   Only keep papers scoring 3 or above.
-
-5. **Return results**: Your final response must contain ONLY a JSON array (no \
-markdown fences, no commentary before or after). Each element:
-   {
-     "title": "Paper Title",
-     "authors": "First Author et al.",
-     "year": 2024,
-     "abstract": "First 2-3 sentences of abstract...",
-     "url": "https://...",
-     "arxiv_id": "2401.12345 or empty string",
-     "relevance": 5,
-     "relevance_reason": "Why this paper matters for the project",
-     "key_idea": "One sentence: the main takeaway applicable to our work"
-   }
-
-   Sort by relevance descending, then year descending.
-
-## Rules
-- Be specific: every search query must relate to the topic, not generic terms.
-- Quality over quantity: 3-8 highly relevant papers beat 15 vague ones.
-- No hallucinated papers: only include papers you actually found via search.
-- Valid JSON only: your final message must be a parseable JSON array, nothing else.\
-"""
+S2_SEARCH = "https://api.semanticscholar.org/graph/v1/paper/search"
+S2_FIELDS = "title,abstract,year,citationCount,url,authors,externalIds"
+S2_RECOMMEND = "https://api.semanticscholar.org/recommendations/v1/papers"
 
 
-def _build_prompt(topic: str, progress_path: str | None,
-                  state_path: str | None) -> str:
-    """Build the full prompt with topic, instructions, and project context."""
-    parts = [f"## Search Topic\n{topic}"]
-
-    if progress_path and Path(progress_path).exists():
-        content = Path(progress_path).read_text().strip()
-        parts.append(f"\n## Project Goal (from progress.md)\n{content}")
-
-    if state_path and Path(state_path).exists():
-        try:
-            state = json.loads(Path(state_path).read_text())
-            summary_parts = []
-            if state.get("goal"):
-                goal_text = state["goal"]
-                if len(goal_text) > 200:
-                    goal_text = goal_text[:200] + "..."
-                summary_parts.append(f"Goal: {goal_text}")
-            if state.get("primary_metric"):
-                summary_parts.append(f"Primary metric: {state['primary_metric']}")
-            bl = state.get("baseline")
-            if bl and bl.get("metrics"):
-                summary_parts.append(f"Baseline: {json.dumps(bl['metrics'])}")
-            best = state.get("best")
-            if best and best.get("metrics"):
-                summary_parts.append(
-                    f"Best so far (iter {best.get('iteration', '?')}): "
-                    f"{json.dumps(best['metrics'])}"
-                )
-            for it in state.get("iterations", [])[-3:]:
-                summary_parts.append(
-                    f"Iter {it['id']}: {it.get('change_summary', '')} "
-                    f"-> {json.dumps(it.get('metrics', {}))}"
-                )
-            if summary_parts:
-                parts.append(
-                    "\n## Iteration History (from state.json)\n" +
-                    "\n".join(f"- {s}" for s in summary_parts)
-                )
-        except (json.JSONDecodeError, IOError):
-            pass
-
-    parts.append(
-        "\n## Task\n"
-        "Search for papers relevant to the topic above, within the context of "
-        "this project. Return ONLY a JSON array of results."
-    )
-    return "\n".join(parts)
-
-
-def _extract_json_array(text: str) -> list | None:
-    """Try to extract a JSON array from text, handling markdown fences."""
-    import re
-    text = text.strip()
-
-    # Try direct parse
+def _s2_request(url: str, timeout: int = 15) -> dict | None:
+    """Make a GET request to Semantic Scholar, return parsed JSON or None."""
+    req = urllib.request.Request(url, headers={"User-Agent": "research-agent/1.0"})
     try:
-        result = json.loads(text)
-        if isinstance(result, list):
-            return result
-    except json.JSONDecodeError:
-        pass
-
-    # Try extracting from markdown code fence or bare array
-    for pattern in [r"```json\s*\n(.*?)\n```", r"```\s*\n(.*?)\n```", r"(\[.*\])"]:
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group(1))
-                if isinstance(result, list):
-                    return result
-            except json.JSONDecodeError:
-                continue
-
-    return None
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
+        print(f"  S2 request failed: {e}", file=sys.stderr)
+        return None
 
 
-def run_search(topic: str, output_path: str, progress_path: str | None,
-               state_path: str | None) -> list | None:
-    """Run paper search via `claude -p` (pipe mode) and parse results."""
-    prompt = _build_prompt(topic, progress_path, state_path)
+def _s2_paper(raw: dict) -> dict:
+    """Normalize a Semantic Scholar paper record."""
+    authors = raw.get("authors") or []
+    author_str = authors[0].get("name", "") if authors else ""
+    if len(authors) > 1:
+        author_str += " et al."
 
-    print(f"Searching: {topic}", file=sys.stderr)
-    print(f"Using: claude -p (pipe mode, Max subscription)", file=sys.stderr)
+    arxiv_id = ""
+    ext = raw.get("externalIds") or {}
+    if ext.get("ArXiv"):
+        arxiv_id = re.sub(r"v\d+$", "", ext["ArXiv"])
+
+    return {
+        "title": raw.get("title", ""),
+        "authors": author_str,
+        "year": raw.get("year"),
+        "abstract": (raw.get("abstract") or "")[:500],
+        "url": raw.get("url", ""),
+        "arxiv_id": arxiv_id,
+        "citations": raw.get("citationCount", 0),
+        "source": "semantic_scholar",
+    }
+
+
+def search_semantic_scholar(query: str, limit: int = 10,
+                            year_min: int | None = None) -> list[dict]:
+    """Search Semantic Scholar by keyword."""
+    params = {"query": query, "limit": limit, "fields": S2_FIELDS}
+    if year_min:
+        params["year"] = f"{year_min}-"
+    url = f"{S2_SEARCH}?{urllib.parse.urlencode(params)}"
+
+    print(f"  S2 search: {query}", file=sys.stderr)
+    data = _s2_request(url)
+    if not data or "data" not in data:
+        return []
+
+    return [_s2_paper(p) for p in data["data"] if p.get("title")]
+
+
+def recommend_semantic_scholar(arxiv_id: str, limit: int = 5) -> list[dict]:
+    """Get recommended papers based on an arXiv ID (Semantic Scholar API)."""
+    # First resolve the paper ID
+    resolve_url = f"https://api.semanticscholar.org/graph/v1/paper/ArXiv:{arxiv_id}"
+    resolve_url += f"?fields=paperId"
+    data = _s2_request(resolve_url)
+    if not data or "paperId" not in data:
+        print(f"  Could not resolve arXiv:{arxiv_id}", file=sys.stderr)
+        return []
+
+    paper_id = data["paperId"]
+    rec_url = f"{S2_RECOMMEND}?from=single-paper&paperId={paper_id}"
+    rec_url += f"&fields={S2_FIELDS}&limit={limit}"
+    print(f"  S2 recommendations for {arxiv_id}", file=sys.stderr)
+    rec_data = _s2_request(rec_url)
+    if not rec_data or "recommendedPapers" not in rec_data:
+        return []
+
+    return [_s2_paper(p) for p in rec_data["recommendedPapers"] if p.get("title")]
+
+
+# ── arXiv ────────────────────────────────────────────────────────────
+
+ARXIV_API = "http://export.arxiv.org/api/query"
+ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom"}
+
+
+def search_arxiv(query: str, limit: int = 10) -> list[dict]:
+    """Search arXiv by keyword."""
+    params = {
+        "search_query": f"all:{query}",
+        "start": 0,
+        "max_results": limit,
+        "sortBy": "relevance",
+        "sortOrder": "descending",
+    }
+    url = f"{ARXIV_API}?{urllib.parse.urlencode(params)}"
+    print(f"  arXiv search: {query}", file=sys.stderr)
+
+    req = urllib.request.Request(url, headers={"User-Agent": "research-agent/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            xml_data = resp.read().decode()
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"  arXiv request failed: {e}", file=sys.stderr)
+        return []
 
     try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "--allowedTools", "WebSearch", "WebFetch", "Read",
-                "--append-system-prompt", SYSTEM_INSTRUCTIONS,
-                "--output-format", "text",
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 min max
-        )
+        root = ET.fromstring(xml_data)
+    except ET.ParseError:
+        return []
 
-        if result.stderr:
-            print(result.stderr, file=sys.stderr, end="")
+    papers = []
+    for entry in root.findall("atom:entry", ARXIV_NS):
+        title_el = entry.find("atom:title", ARXIV_NS)
+        title = title_el.text.strip().replace("\n", " ") if title_el is not None and title_el.text else ""
+        if not title:
+            continue
 
-        if result.returncode != 0:
-            print(f"claude -p exited with code {result.returncode}",
-                  file=sys.stderr)
-            if result.stdout:
-                print(f"stdout: {result.stdout[:300]}", file=sys.stderr)
-            return None
+        abstract_el = entry.find("atom:summary", ARXIV_NS)
+        abstract = abstract_el.text.strip().replace("\n", " ")[:500] if abstract_el is not None and abstract_el.text else ""
 
-        raw_text = result.stdout
+        authors_els = entry.findall("atom:author/atom:name", ARXIV_NS)
+        authors = [a.text for a in authors_els if a.text]
+        author_str = authors[0] if authors else ""
+        if len(authors) > 1:
+            author_str += " et al."
 
-    except subprocess.TimeoutExpired:
-        print("claude -p timed out after 10 minutes", file=sys.stderr)
-        return None
-    except FileNotFoundError:
-        print(
-            "Error: 'claude' CLI not found. Install Claude Code:\n"
-            "  npm install -g @anthropic-ai/claude-code",
-            file=sys.stderr,
-        )
-        return None
+        published = entry.find("atom:published", ARXIV_NS)
+        year = None
+        if published is not None and published.text:
+            year = int(published.text[:4])
 
-    # Parse JSON from response
-    papers = _extract_json_array(raw_text)
-    if papers is None:
-        print("Warning: Could not parse JSON from claude response.",
-              file=sys.stderr)
-        print(f"Raw response:\n{raw_text[:500]}...", file=sys.stderr)
-        Path(output_path).write_text(raw_text)
-        return None
+        # Extract arXiv ID from the entry id URL
+        id_el = entry.find("atom:id", ARXIV_NS)
+        arxiv_id = ""
+        entry_url = ""
+        if id_el is not None and id_el.text:
+            entry_url = id_el.text
+            m = re.search(r"(\d{4}\.\d{4,5})", id_el.text)
+            if m:
+                arxiv_id = m.group(1)
 
-    # Write structured output
+        papers.append({
+            "title": title,
+            "authors": author_str,
+            "year": year,
+            "abstract": abstract,
+            "url": entry_url,
+            "arxiv_id": arxiv_id,
+            "citations": 0,  # arXiv doesn't provide citation counts
+            "source": "arxiv",
+        })
+
+    return papers
+
+
+# ── Deduplication & context enrichment ────────────────────────────────
+
+def _dedup(papers: list[dict]) -> list[dict]:
+    """Deduplicate by normalized title, keeping the one with more info."""
+    seen: dict[str, dict] = {}
+    for p in papers:
+        key = re.sub(r"\W+", " ", p["title"].lower()).strip()
+        if key not in seen or p["citations"] > seen[key]["citations"]:
+            seen[key] = p
+    return list(seen.values())
+
+
+def _enrich_from_state(state_path: str | None) -> list[str]:
+    """Extract extra search terms from state.json context."""
+    if not state_path or not Path(state_path).exists():
+        return []
+    try:
+        state = json.loads(Path(state_path).read_text())
+    except (json.JSONDecodeError, IOError):
+        return []
+
+    extra = []
+    # Add terms from recent iterations' papers
+    for it in state.get("iterations", [])[-5:]:
+        for paper in it.get("papers_referenced", []):
+            extra.append(paper)
+    return extra
+
+
+# ── Main search pipeline ─────────────────────────────────────────────
+
+def run_search(query: str, output_path: str, limit: int = 10,
+               year_min: int | None = None, state_path: str | None = None,
+               related_to: str | None = None) -> list[dict]:
+    """Run combined search across Semantic Scholar + arXiv."""
+    print(f"Searching: {query}", file=sys.stderr)
+    all_papers: list[dict] = []
+
+    # 1. Semantic Scholar keyword search
+    s2_papers = search_semantic_scholar(query, limit=limit, year_min=year_min)
+    all_papers.extend(s2_papers)
+
+    # Brief pause to avoid rate limits
+    time.sleep(1)
+
+    # 2. arXiv keyword search
+    arxiv_papers = search_arxiv(query, limit=limit)
+    all_papers.extend(arxiv_papers)
+
+    # 3. Recommendations based on a related paper (if provided)
+    if related_to:
+        time.sleep(1)
+        rec_papers = recommend_semantic_scholar(related_to, limit=5)
+        all_papers.extend(rec_papers)
+
+    # 4. Deduplicate and sort by citations
+    papers = _dedup(all_papers)
+    papers.sort(key=lambda p: (p.get("citations", 0), p.get("year") or 0), reverse=True)
+
+    # 5. Write output
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
         json.dump(papers, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
+    print(f"Found {len(papers)} papers (S2: {len(s2_papers)}, "
+          f"arXiv: {len(arxiv_papers)}) -> {output_path}", file=sys.stderr)
     return papers
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Search for papers using Claude Code pipe mode. "
-                    "No API key needed — uses your Claude Code auth (Max sub).",
+        description="Search for academic papers via Semantic Scholar + arXiv. "
+                    "Pure Python, no API keys needed.",
         epilog="""Examples:
-  python search_papers.py "Householder orthogonal adapters for ViT" results.json
-  python search_papers.py "nullspace bias adapter layers" results.json --progress progress.md
-  python search_papers.py "Gram matrix preservation PEFT" results.json --state state.json
+  python search_papers.py "Householder orthogonal adapters ViT" results.json
+  python search_papers.py "medical image segmentation SAM adapter" results.json --limit 15
+  python search_papers.py "nullspace projection PEFT" results.json --year-min 2023
+  python search_papers.py "Gram matrix" results.json --related-to 2304.12620
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("topic",
-                        help="What to search for — must be specific to the project")
-    parser.add_argument("output",
-                        help="Output JSON file path")
-    parser.add_argument("--progress", default=None,
-                        help="Path to progress.md for project context")
+    parser.add_argument("query", help="Search query terms")
+    parser.add_argument("output", help="Output JSON file path")
+    parser.add_argument("--limit", type=int, default=10,
+                        help="Max results per source (default: 10)")
+    parser.add_argument("--year-min", type=int, default=None,
+                        help="Only papers from this year onward (S2 only)")
     parser.add_argument("--state", default=None,
-                        help="Path to state.json for iteration history")
+                        help="Path to state.json for context enrichment")
+    parser.add_argument("--related-to", default=None,
+                        help="arXiv ID to get related paper recommendations")
     args = parser.parse_args()
 
-    papers = run_search(args.topic, args.output, args.progress, args.state)
+    papers = run_search(
+        args.query, args.output,
+        limit=args.limit, year_min=args.year_min,
+        state_path=args.state, related_to=args.related_to,
+    )
 
-    if papers is not None:
-        print(f"Found {len(papers)} papers -> {args.output}", file=sys.stderr)
-        json.dump(papers, sys.stdout, indent=2, ensure_ascii=False)
-        print()
-    else:
-        sys.exit(1)
+    # Also print to stdout for immediate use
+    json.dump(papers, sys.stdout, indent=2, ensure_ascii=False)
+    print()
 
 
 if __name__ == "__main__":
