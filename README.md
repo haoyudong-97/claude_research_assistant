@@ -140,8 +140,9 @@ After each iteration, Claude presents a summary and waits. You can:
 │  │  Orchestrates the loop:                            │  │
 │  │  ┌──────────────────────────────────────────────┐  │  │
 │  │  │ 1. Read state.json (recover context)         │  │  │
-│  │  │ 2. python search_papers.py → JSON            │  │  │
-│  │  │ 3. Evaluate papers, form hypothesis          │  │  │
+│  │  │ 2. Decide what to try (user instruction or    │  │  │
+│  │  │    search_papers.py if exploring new ideas)  │  │  │
+│  │  │ 3. Form hypothesis                           │  │  │
 │  │  │ 4. python git_ops.py branch-start            │  │  │
 │  │  │ 5. Implement ONE change in code              │  │  │
 │  │  │ 6. python git_ops.py commit-code + push      │  │  │
@@ -187,19 +188,30 @@ Each iteration follows this sequence. Claude executes these steps autonomously, 
 | Step | Action | Tool |
 |------|--------|------|
 | 1 | Read state (recover context) | `python -m research_agent.state read` |
-| 2 | Search literature | `python research_agent/search_papers.py "query" results/search_iterN.json` |
-| 3 | Evaluate results, form hypothesis | Claude (reads JSON, uses WebSearch to supplement) |
-| 4 | Create git branch | `python -m research_agent.git_ops branch-start --iteration N --change "..."` |
-| 5 | Implement ONE change | Claude (edits code) |
-| 6 | Commit code + push | `python -m research_agent.git_ops commit-code ...` then `push` |
-| 7 | Launch experiment | `bash research_agent/run_and_wait.sh <script> <checkpoint_dir>` |
-| 8 | Poll for completion | `test -f <checkpoint_dir>/.done && cat <checkpoint_dir>/.done \|\| echo RUNNING` |
-| 9 | Analyze results | Claude (reads eval logs, compares to baseline/best) |
-| 10 | Record iteration | `python -m research_agent.state add-iteration ...` |
-| 11 | Commit results | `python -m research_agent.git_ops commit-results --iteration N --state state.json` |
-| 12 | Merge if best | `python -m research_agent.git_ops merge-best --state state.json` |
-| 13 | Present summary | Claude (shows results to user) |
-| 14 | Wait for feedback | User responds in tmux session |
+| 2 | Decide what to try | User instruction, previous results, or literature search |
+| 3 | *(Optional)* Search literature | `python research_agent/search_papers.py "query" results/search_iterN.json` |
+| 4 | Form hypothesis | Claude (based on user input, papers if searched, prior results) |
+| 5 | Create git branch | `python -m research_agent.git_ops branch-start --iteration N --change "..."` |
+| 6 | Implement ONE change | Claude (edits code) |
+| 7 | Commit code + push | `python -m research_agent.git_ops commit-code ...` then `push` |
+| 8 | Launch experiment | `bash research_agent/run_and_wait.sh <script> <checkpoint_dir>` |
+| 9 | Poll for completion | `test -f <checkpoint_dir>/.done && cat <checkpoint_dir>/.done \|\| echo RUNNING` |
+| 10 | Analyze results | Claude (reads eval logs, compares to baseline/best) |
+| 11 | Record iteration | `python -m research_agent.state add-iteration ...` |
+| 12 | Commit results | `python -m research_agent.git_ops commit-results --iteration N --state state.json` |
+| 13 | Merge if best | `python -m research_agent.git_ops merge-best --state state.json` |
+| 14 | Present summary | Claude (shows results to user) |
+| 15 | Wait for feedback | User responds in tmux session |
+
+**When to search papers:**
+- Exploring a new technique you haven't tried before
+- User asks "what does the literature say about X?"
+- Previous iterations plateaued and you need fresh ideas
+
+**When to skip search:**
+- User gave a specific instruction ("try lr=5e-5", "add dropout 0.1")
+- The next step is obvious from analyzing previous results
+- User said "don't search, just try X"
 
 ---
 

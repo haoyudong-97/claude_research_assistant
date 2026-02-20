@@ -57,19 +57,23 @@ main                          ← always has the best-performing code
    python -m research_agent.state read
    ```
 
-2. **Search literature** — use the Python search tool (Semantic Scholar + arXiv):
+2. **Decide what to try** — the change can come from different sources:
+   - **User instruction** — the user told you exactly what to try (skip search).
+   - **Previous results** — analysis of the last iteration suggests an obvious next step (skip search).
+   - **New technique needed** — search literature first (see below).
+
+3. **(Optional) Search literature** — only when exploring unfamiliar techniques:
    ```
    python research_agent/search_papers.py \
      "orthogonal adapter Gram-preserving fine-tuning for ViT" \
      results/search_iter3.json \
      --limit 10 --year-min 2023
    ```
-   - The query must be specific to this iteration's technique.
    - Use `--related-to <arxiv_id>` to find papers related to a known one.
-   - Read the JSON results, evaluate relevance to the project, pick top papers.
    - Supplement with your own WebSearch if the APIs miss key papers.
+   - Skip this step when the user gives a specific instruction or the next step is obvious.
 
-3. **Form hypothesis** — based on papers + previous results.
+4. **Form hypothesis** — based on user feedback, papers (if searched), and previous results.
 
 4. **Create branch** — start a git branch for this iteration:
    ```
