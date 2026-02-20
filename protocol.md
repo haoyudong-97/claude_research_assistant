@@ -2,6 +2,15 @@
 
 When asked to start a research loop, follow this protocol. You are running in a **live tmux session** — the user can watch your progress, detach/reattach, and provide feedback.
 
+### Operating Modes
+
+The loop supports two modes, set by the user at startup or changed between iterations:
+
+- **Autonomous mode** (`--auto`): After each iteration, analyze results and auto-decide the next experiment. Continue without waiting for user input. Stop only when the goal is reached, the metric plateaus for 3+ iterations, or you are unsure what to try.
+- **Interactive mode** (default): After each iteration, present a summary and **wait for user feedback** before continuing.
+
+The user can switch modes at any time by saying "continue autonomously" or "wait for my feedback".
+
 ### progress.md
 
 The user creates `progress.md` to define the research goal. The agent auto-updates it with tracking data below the sentinel line. **Never edit the user's goal section above the sentinel.**
@@ -132,7 +141,24 @@ main                          ← always has the best-performing code
 
 14. **Summarize** — present results and proposed next steps to user.
 
-15. **Get feedback** — wait for user response before next iteration.
+15. **Next iteration decision:**
+    - **Interactive mode:** Wait for user feedback before continuing.
+    - **Autonomous mode:** Auto-decide the next step based on results:
+      - **Improved?** → Build on it (vary the same knob, combine with another).
+      - **Regressed?** → Revert to best config, try a different direction.
+      - **Plateaued (3+ iters)?** → Search literature for fresh ideas, or stop and ask the user.
+      - **Goal reached?** → Stop and present final summary.
+      - **Unsure?** → Stop and ask the user for direction.
+
+### Autonomous Decision Guidelines
+
+When running autonomously, use these heuristics to decide what to try next:
+
+1. **Read the full iteration history** from state.json — look for trends, not just the last result.
+2. **If the last change helped:** Try a variant (e.g., helped with rank 4 → try rank 8) or combine it with the second-best change.
+3. **If the last change hurt or was neutral:** Revert to the best config and try something orthogonal (different component, different technique).
+4. **After 3+ iterations without improvement:** Search literature for new ideas. If still stuck, stop and ask the user.
+5. **Log your reasoning** in the `--feedback` field so the user can review your thought process.
 
 ### Git Commands Reference
 

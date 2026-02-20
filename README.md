@@ -101,22 +101,31 @@ claude                         # start Claude Code interactively
 Inside the Claude Code session, type:
 
 ```
+# Interactive mode (default) — asks for feedback after each iteration:
 Start the research loop from progress.md
+
+# Autonomous mode — runs continuously, auto-decides next steps:
+Start the research loop from progress.md, run autonomously
 ```
 
 Claude will:
 1. Read your goal from `progress.md`
 2. Initialize `state.json` (`python -m research_agent.state init --progress progress.md`)
 3. Record your baseline results
-4. Begin the iteration cycle: search → hypothesize → implement → experiment → analyze → **ask you for feedback**
+4. Begin the iteration cycle: hypothesize → implement → experiment → analyze → (feedback or auto-continue)
 
-### Step 6: Provide feedback when prompted
+### Step 6: Provide feedback (interactive mode) or monitor (autonomous mode)
 
-After each iteration, Claude presents a summary and waits. You can:
+**Interactive mode** — after each iteration, Claude presents a summary and waits. You can:
 - **Steer direction:** "Focus on token-wise adaptation next"
 - **Approve:** "Looks good, continue"
 - **Reject:** "Revert this change, try increasing spd_rank instead"
+- **Go autonomous:** "Continue autonomously"
 - **Stop:** "Stop the loop, let me review"
+
+**Autonomous mode** — Claude continues without waiting. You can still interrupt at any time:
+- Type a message to give new instructions (Claude reads it at the next iteration boundary)
+- Say "wait for my feedback from now on" to switch back to interactive
 
 ### tmux Controls
 
@@ -151,7 +160,7 @@ After each iteration, Claude presents a summary and waits. You can:
 │  │  │ 9. python state.py add-iteration             │  │  │
 │  │  │ 10. python git_ops.py commit-results         │  │  │
 │  │  │ 11. Present summary to user                  │  │  │
-│  │  │ 12. *** WAIT FOR USER FEEDBACK ***           │  │  │
+│  │  │ 12. Wait for feedback OR auto-continue       │  │  │
 │  │  │ 13. Repeat                                   │  │  │
 │  │  └──────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────┘  │
@@ -201,7 +210,21 @@ Each iteration follows this sequence. Claude executes these steps autonomously, 
 | 12 | Commit results | `python -m research_agent.git_ops commit-results --iteration N --state state.json` |
 | 13 | Merge if best | `python -m research_agent.git_ops merge-best --state state.json` |
 | 14 | Present summary | Claude (shows results to user) |
-| 15 | Wait for feedback | User responds in tmux session |
+| 15 | Next iteration | Wait for user feedback **or** auto-decide (see modes below) |
+
+### Operating Modes
+
+| Mode | How to activate | Behavior after each iteration |
+|------|----------------|-------------------------------|
+| **Interactive** (default) | Just start normally | Presents summary, waits for user feedback |
+| **Autonomous** | "Start the research loop autonomously" or "continue autonomously" | Analyzes results, auto-decides next step, continues without waiting |
+
+In autonomous mode, Claude stops and asks the user when:
+- The goal metric is reached
+- The metric has plateaued for 3+ iterations
+- It's unsure what to try next
+
+The user can switch modes at any time: "wait for my feedback from now on" or "continue autonomously".
 
 **When to search papers:**
 - Exploring a new technique you haven't tried before
