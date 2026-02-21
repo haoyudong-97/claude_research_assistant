@@ -2,15 +2,25 @@
 
 When asked to start a research loop, follow this protocol. You are running in a **live tmux session** — the user can watch your progress, detach/reattach, and provide feedback.
 
+### CRITICAL: Delegation Rules
+
+**You are the ORCHESTRATOR only. You MUST delegate actual work to worker processes:**
+
+1. **For paper search**: ALWAYS call `python research_agent/function_a.py` via Bash. Do NOT use your own WebSearch tool directly.
+2. **For code implementation**: ALWAYS call `python research_agent/function_b.py` via Bash. Do NOT use your own Read/Edit/Write tools to modify project code directly.
+3. **Your job**: Read state, decide what to try, call Function A/B, review their output, run git_ops, launch experiments, analyze results, and communicate with the user.
+
+The reason: Function A/B spawn **separate Claude Code workers** in new tmux windows. This gives the user visibility (they can watch workers via `Ctrl-b w`), prevents your context from getting bloated with code details, and provides clean separation between orchestration and execution.
+
 ### Architecture
 
-You (the orchestrator) run in tmux **pane 0**. Worker Claude Code sessions run in **separate tmux windows** — they are independent processes that can read/edit/search without nesting issues.
+You (the orchestrator) run in tmux **window 0**. Worker Claude Code sessions run in **separate tmux windows** — they are independent processes that can read/edit/search without nesting issues.
 
 ```
 tmux session "research"
   ├── window 0: You (orchestrator) — controls the loop, reads results
-  ├── window "search":    claude -p for Function A (paper search)
-  └── window "implement": claude -p for Function B (code changes)
+  ├── window "{project}:search":    claude -p for Function A (paper search)
+  └── window "{project}:impl":     claude -p for Function B (code changes)
 ```
 
 Workers are launched automatically by Function A/B Python scripts. No API key needed — everything uses your Claude subscription.
@@ -208,6 +218,8 @@ All commands run via `python -m research_agent.git_ops <command>`:
 
 ### Rules
 
+- **NEVER implement code changes yourself** — ALWAYS use `python research_agent/function_b.py` via Bash. This spawns a worker in a separate tmux window.
+- **NEVER search for papers yourself** — ALWAYS use `python research_agent/function_a.py` via Bash. This spawns a worker in a separate tmux window.
 - **ONE principal change per iteration** — isolate variables for clean comparison.
 - **NEVER overwrite previous checkpoints** — each iteration gets a unique checkpoint directory.
 - **ALWAYS create branch + commit before running experiments** — code changes must be in git before any long-running job starts.
