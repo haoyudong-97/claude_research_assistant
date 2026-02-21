@@ -1,338 +1,79 @@
 #!/usr/bin/env python3
-"""Function B: Code implementation powered by Claude API.
+"""Function B: Code implementation via Claude Code worker in a tmux pane.
 
-Takes paper results from Function A (or user instructions) and implements
-changes in the codebase. Runs as an agentic loop — Claude reads code,
-plans changes, and edits files through tool calls.
-
-Requires: ANTHROPIC_API_KEY environment variable.
+Launches `claude -p` in a separate tmux window to implement code changes.
+The worker Claude Code reads, edits, and creates files directly in the project.
+Uses the user's Claude subscription (no API key needed).
 
 Usage:
     # From paper results:
-    python research_agent/function_b.py --papers results.json --project-dir .
+    python research_agent/function_b.py --papers results/search.json --project-dir .
 
     # From direct instruction:
     python research_agent/function_b.py --instruction "increase spd_rank to 8" --project-dir .
 
     # With specific files to focus on:
-    python research_agent/function_b.py --papers results.json --project-dir . \
+    python research_agent/function_b.py --papers results/search.json --project-dir . \
         --files models/sam/modeling/common.py cfg.py
 
 Output:
-    - Modified files in the project directory
-    - JSON summary to stdout: {"changes": [...], "hypothesis": "...", "papers_used": [...]}
+    - Modified files in the project directory (done by the worker)
+    - JSON summary to stdout: {"hypothesis": "...", "change_summary": "...", ...}
 """
 
 import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 8192
+POLL_INTERVAL = 5  # seconds between completion checks
+DEFAULT_TIMEOUT = 600  # 10 minutes
 
 
-def _api_key() -> str:
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        print("Error: ANTHROPIC_API_KEY not set.", file=sys.stderr)
-        sys.exit(1)
-    return key
+# ── Prompt building ──────────────────────────────────────────────────
 
-
-def _api_call(messages: list[dict], system: str,
-              tools: list[dict]) -> dict:
-    """Call the Anthropic Messages API."""
-    import urllib.error
-    import urllib.request
-
-    body = {
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "system": system,
-        "messages": messages,
-        "tools": tools,
-    }
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        API_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": _api_key(),
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode() if e.fp else ""
-        print(f"API error {e.code}: {err_body[:500]}", file=sys.stderr)
-        sys.exit(1)
-
-
-# ── Tool definitions ─────────────────────────────────────────────────
-
-TOOLS = [
-    {
-        "name": "read_file",
-        "description": "Read a file from the project. Returns the file contents.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to project root"
-                }
-            },
-            "required": ["path"]
-        }
-    },
-    {
-        "name": "edit_file",
-        "description": "Replace a specific string in a file. The old_string must "
-                       "match exactly (including whitespace). Use this for targeted "
-                       "edits — read the file first to get exact content.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path relative to project root"
-                },
-                "old_string": {
-                    "type": "string",
-                    "description": "Exact string to find and replace"
-                },
-                "new_string": {
-                    "type": "string",
-                    "description": "Replacement string"
-                }
-            },
-            "required": ["path", "old_string", "new_string"]
-        }
-    },
-    {
-        "name": "list_files",
-        "description": "List files in a directory (non-recursive by default).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Directory path relative to project root"
-                },
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern to filter (e.g. '*.py')"
-                }
-            },
-            "required": ["path"]
-        }
-    },
-    {
-        "name": "search_code",
-        "description": "Search for a pattern in files (grep-like). Returns matching lines.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Regex pattern to search for"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "File or directory to search in (default: project root)"
-                },
-                "file_pattern": {
-                    "type": "string",
-                    "description": "Glob to filter files (e.g. '*.py')"
-                }
-            },
-            "required": ["pattern"]
-        }
-    },
-    {
-        "name": "done",
-        "description": "Call this when you have finished implementing all changes. "
-                       "Provide a summary of what was changed and why.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "hypothesis": {
-                    "type": "string",
-                    "description": "The hypothesis for this change"
-                },
-                "change_summary": {
-                    "type": "string",
-                    "description": "Short summary of what was changed"
-                },
-                "files_modified": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of files that were modified"
-                },
-                "papers_used": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Papers that inspired this change"
-                }
-            },
-            "required": ["hypothesis", "change_summary", "files_modified"]
-        }
-    },
-]
-
-
-# ── Tool execution ───────────────────────────────────────────────────
-
-def _resolve(project_dir: str, rel_path: str) -> Path:
-    """Resolve a relative path within the project, preventing escape."""
-    p = (Path(project_dir) / rel_path).resolve()
-    proj = Path(project_dir).resolve()
-    if not str(p).startswith(str(proj)):
-        raise ValueError(f"Path escapes project: {rel_path}")
-    return p
-
-
-def exec_read_file(project_dir: str, args: dict) -> str:
-    p = _resolve(project_dir, args["path"])
-    if not p.exists():
-        return f"Error: file not found: {args['path']}"
-    if p.is_dir():
-        return f"Error: {args['path']} is a directory, use list_files"
-    try:
-        content = p.read_text()
-        if len(content) > 50000:
-            return content[:50000] + f"\n... (truncated, {len(content)} chars total)"
-        return content
-    except Exception as e:
-        return f"Error reading {args['path']}: {e}"
-
-
-def exec_edit_file(project_dir: str, args: dict) -> str:
-    p = _resolve(project_dir, args["path"])
-    if not p.exists():
-        return f"Error: file not found: {args['path']}"
-
-    content = p.read_text()
-    old = args["old_string"]
-    new = args["new_string"]
-
-    count = content.count(old)
-    if count == 0:
-        return (f"Error: old_string not found in {args['path']}. "
-                f"Read the file first to get the exact content.")
-    if count > 1:
-        return (f"Error: old_string found {count} times in {args['path']}. "
-                f"Use a longer/more specific string to match uniquely.")
-
-    content = content.replace(old, new, 1)
-    p.write_text(content)
-    return f"OK: edited {args['path']} ({len(old)} chars -> {len(new)} chars)"
-
-
-def exec_list_files(project_dir: str, args: dict) -> str:
-    p = _resolve(project_dir, args["path"])
-    if not p.exists():
-        return f"Error: directory not found: {args['path']}"
-
-    pattern = args.get("pattern", "*")
-    try:
-        files = sorted(p.glob(pattern))
-        # Filter out __pycache__, .git, node_modules
-        files = [f for f in files
-                 if not any(skip in f.parts for skip in
-                            ("__pycache__", ".git", "node_modules", ".ipynb_checkpoints"))]
-        return "\n".join(str(f.relative_to(Path(project_dir).resolve()))
-                         for f in files[:100])
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def exec_search_code(project_dir: str, args: dict) -> str:
-    search_path = args.get("path", ".")
-    p = _resolve(project_dir, search_path)
-    pattern = args["pattern"]
-    file_pattern = args.get("file_pattern", "")
-
-    cmd = ["grep", "-rn", "--include", file_pattern or "*.py",
-           "-E", pattern, str(p)]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        output = r.stdout
-        if len(output) > 10000:
-            output = output[:10000] + "\n... (truncated)"
-        return output or "No matches found."
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def execute_tool(project_dir: str, name: str, args: dict) -> str:
-    """Execute a tool call and return the result string."""
-    if name == "read_file":
-        return exec_read_file(project_dir, args)
-    elif name == "edit_file":
-        return exec_edit_file(project_dir, args)
-    elif name == "list_files":
-        return exec_list_files(project_dir, args)
-    elif name == "search_code":
-        return exec_search_code(project_dir, args)
-    elif name == "done":
-        return "DONE"
-    else:
-        return f"Error: unknown tool {name}"
-
-
-# ── Main agent loop ──────────────────────────────────────────────────
-
-SYSTEM_PROMPT = """\
-You are an ML research engineer. You receive paper findings or direct \
-instructions and implement changes in an existing codebase.
-
-Rules:
-1. Read the relevant code files FIRST to understand the current implementation.
-2. Make ONE focused change (do not refactor unrelated code).
-3. Use edit_file for targeted edits — match the exact existing text.
-4. After implementing, call the "done" tool with a summary.
-5. If you cannot implement the change, call "done" explaining why.
-6. Keep changes minimal and surgical — don't rewrite entire files.\
-"""
-
-
-def run_implementation(papers_path: str | None, instruction: str | None,
-                       project_dir: str, focus_files: list[str] | None,
-                       state_path: str | None) -> dict | None:
-    """Run the agentic code implementation loop."""
-
-    # Build the user message
+def _build_prompt(papers_path: str | None, instruction: str | None,
+                  project_dir: str, focus_files: list[str] | None,
+                  state_path: str | None) -> str:
+    """Build the full prompt for the Claude Code implementation worker."""
     parts = []
 
-    if papers_path and Path(papers_path).exists():
-        papers = json.loads(Path(papers_path).read_text())
-        # Show top 3 most relevant papers
-        top = sorted(papers, key=lambda p: p.get("relevance", 0), reverse=True)[:3]
-        parts.append("## Papers to implement from:\n")
-        for p in top:
-            parts.append(f"### {p['title']} ({p.get('year', '?')})")
-            parts.append(f"Key idea: {p.get('key_idea', p.get('abstract', '')[:200])}")
-            parts.append(f"Relevance: {p.get('relevance', '?')}/5")
-            parts.append("")
+    proj = Path(project_dir).resolve()
+    parts.append(f"You are implementing a code change in the project at: {proj}")
+    parts.append(f"Working directory: {proj}")
+    parts.append("")
 
+    # Papers context
+    if papers_path and Path(papers_path).exists():
+        try:
+            papers = json.loads(Path(papers_path).read_text())
+            top = sorted(papers, key=lambda p: p.get("relevance", 0),
+                         reverse=True)[:3]
+            parts.append("## Papers to implement from:\n")
+            for p in top:
+                parts.append(f"### {p['title']} ({p.get('year', '?')})")
+                parts.append(f"Key idea: {p.get('key_idea', p.get('abstract', '')[:300])}")
+                parts.append(f"Relevance: {p.get('relevance', '?')}/5")
+                if p.get("relevance_reason"):
+                    parts.append(f"Why: {p['relevance_reason']}")
+                parts.append("")
+        except (json.JSONDecodeError, IOError) as e:
+            parts.append(f"(Could not read papers file: {e})\n")
+
+    # Direct instruction
     if instruction:
         parts.append(f"## Instruction\n{instruction}\n")
 
-    # Add project context from state
+    # Project context from state
     if state_path and Path(state_path).exists():
         try:
             state = json.loads(Path(state_path).read_text())
-            parts.append(f"## Project context")
+            parts.append("## Project context")
             parts.append(f"Goal: {state.get('goal', 'N/A')}")
             parts.append(f"Primary metric: {state.get('primary_metric', 'N/A')}")
             bl = state.get("baseline")
@@ -342,7 +83,6 @@ def run_implementation(papers_path: str | None, instruction: str | None,
             if best and best.get("metrics"):
                 parts.append(f"Best (iter {best.get('iteration')}): "
                               f"{json.dumps(best['metrics'])}")
-            # Last iteration
             iters = state.get("iterations", [])
             if iters:
                 last = iters[-1]
@@ -353,82 +93,185 @@ def run_implementation(papers_path: str | None, instruction: str | None,
         except (json.JSONDecodeError, IOError):
             pass
 
+    # Focus files
     if focus_files:
-        parts.append(f"## Key files to examine\n" +
-                      "\n".join(f"- {f}" for f in focus_files))
+        parts.append("## Key files to examine and modify")
+        for f in focus_files:
+            parts.append(f"- {f}")
+        parts.append("")
 
-    parts.append("\n## Task")
-    parts.append("Read the relevant code, then implement ONE change based on "
-                 "the papers/instruction above. Call the 'done' tool when finished.")
+    # Task instructions
+    parts.append("""\
+## Task
 
-    user_msg = "\n".join(parts)
-    messages = [{"role": "user", "content": user_msg}]
+1. Read the relevant code files FIRST to understand the current implementation.
+2. Implement ONE focused change based on the papers/instruction above.
+3. Make minimal, surgical edits — don't rewrite entire files or refactor unrelated code.
+4. Verify your changes are syntactically correct.
+5. After implementing, output EXACTLY this JSON block as the LAST thing you print:
 
-    print(f"Starting implementation agent ({MODEL})...", file=sys.stderr)
+```json
+{
+  "hypothesis": "What you expect this change to achieve",
+  "change_summary": "Short description of what was changed",
+  "files_modified": ["path/to/file1.py", "path/to/file2.py"],
+  "papers_used": ["Paper Title 1", "Paper Title 2"]
+}
+```
 
-    for turn in range(30):  # Max 30 API calls
-        resp = _api_call(messages, SYSTEM_PROMPT, TOOLS)
-        stop = resp.get("stop_reason", "")
-        content = resp.get("content", [])
+IMPORTANT: The JSON block above MUST be the very last thing in your output.
+Do NOT add any commentary after the JSON block.""")
 
-        # Check for done tool or extract tool calls
-        tool_calls = []
-        for block in content:
-            if block.get("type") == "tool_use":
-                tool_calls.append(block)
+    return "\n".join(parts)
 
-        # If no tool calls and end_turn, Claude is done (shouldn't happen
-        # without calling done tool, but handle gracefully)
-        if stop == "end_turn" and not tool_calls:
-            text = " ".join(b.get("text", "") for b in content
-                            if b.get("type") == "text")
-            print(f"Agent ended without calling done: {text[:200]}",
+
+# ── Worker execution ─────────────────────────────────────────────────
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+
+
+def _extract_summary(text: str) -> dict:
+    """Extract the JSON summary from the worker's output."""
+    text = _strip_ansi(text)
+
+    # Look for the last JSON block in markdown fences
+    matches = list(re.finditer(r"```json\s*\n(.*?)\n```", text, re.DOTALL))
+    if matches:
+        try:
+            obj = json.loads(matches[-1].group(1))
+            if isinstance(obj, dict) and "change_summary" in obj:
+                return obj
+        except json.JSONDecodeError:
+            pass
+
+    # Look for the last JSON object containing our expected keys
+    matches = list(re.finditer(
+        r'\{[^{}]*"(?:hypothesis|change_summary)"[^{}]*\}', text, re.DOTALL
+    ))
+    if matches:
+        try:
+            return json.loads(matches[-1].group(0))
+        except json.JSONDecodeError:
+            pass
+
+    # Try multiline JSON object at the end of text
+    match = re.search(r'(\{[\s\S]*"change_summary"[\s\S]*\})\s*$', text)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: couldn't parse
+    return {
+        "hypothesis": "",
+        "change_summary": "(could not parse summary from worker output)",
+        "files_modified": [],
+        "papers_used": [],
+    }
+
+
+def _run_in_tmux(cmd: str, window_name: str) -> None:
+    """Launch a bash command in a new detached tmux window."""
+    subprocess.run(
+        ["tmux", "new-window", "-d", "-n", window_name, "bash", "-c", cmd],
+        check=True,
+    )
+
+
+def run_implementation(papers_path: str | None, instruction: str | None,
+                       project_dir: str, focus_files: list[str] | None,
+                       state_path: str | None,
+                       timeout: int = DEFAULT_TIMEOUT) -> dict | None:
+    """Run code implementation via a Claude Code worker in a tmux pane."""
+
+    prompt = _build_prompt(papers_path, instruction, project_dir,
+                           focus_files, state_path)
+
+    # Set up output paths (in project's results/ dir)
+    results_dir = Path(project_dir).resolve() / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    out = (results_dir / "func_b_output.txt").resolve()
+    prompt_file = out.with_suffix(".prompt")
+    done_marker = out.with_suffix(".done")
+    err_file = out.with_suffix(".err")
+
+    # Clean previous run artifacts
+    for f in [out, done_marker, err_file]:
+        f.unlink(missing_ok=True)
+
+    prompt_file.write_text(prompt)
+
+    # Build command: cd to project dir, run claude -p with file tools
+    proj_abs = shlex.quote(str(Path(project_dir).resolve()))
+    cmd = (
+        f"cd {proj_abs} && "
+        f"claude -p --verbose "
+        f"< {shlex.quote(str(prompt_file))} "
+        f"> {shlex.quote(str(out))} "
+        f"2> {shlex.quote(str(err_file))}; "
+        f"echo $? > {shlex.quote(str(done_marker))}"
+    )
+
+    print(f"Implementing changes in {project_dir}...", file=sys.stderr)
+
+    if os.environ.get("TMUX"):
+        _run_in_tmux(cmd, "implement")
+        print("Worker launched in tmux window 'implement'", file=sys.stderr)
+    else:
+        subprocess.Popen(
+            ["bash", "-c", cmd],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("Worker launched as background process", file=sys.stderr)
+
+    # Poll for completion
+    start = time.time()
+    while not done_marker.exists():
+        elapsed = time.time() - start
+        if elapsed > timeout:
+            print(f"Timeout after {timeout}s waiting for implementation worker",
                   file=sys.stderr)
-            return {"hypothesis": "", "change_summary": text[:200],
-                    "files_modified": [], "papers_used": []}
+            return None
+        time.sleep(POLL_INTERVAL)
+        if int(elapsed) % 60 < POLL_INTERVAL and elapsed > POLL_INTERVAL:
+            print(f"  Still implementing... ({int(elapsed)}s)", file=sys.stderr)
 
-        # Execute tool calls
-        messages.append({"role": "assistant", "content": content})
-        tool_results = []
+    # Check exit code
+    exit_code = done_marker.read_text().strip()
+    if exit_code != "0":
+        err_text = err_file.read_text() if err_file.exists() else "unknown"
+        print(f"Worker exited with code {exit_code}: {err_text[:500]}",
+              file=sys.stderr)
+        # Still try to parse — partial output may be useful
 
-        for tc in tool_calls:
-            name = tc["name"]
-            args = tc.get("input", {})
+    if not out.exists() or out.stat().st_size == 0:
+        print("No output produced by worker", file=sys.stderr)
+        return None
 
-            print(f"  [{turn+1}] {name}({json.dumps(args)[:100]})",
-                  file=sys.stderr)
+    raw = out.read_text()
+    summary = _extract_summary(raw)
 
-            if name == "done":
-                # Implementation complete
-                result = {
-                    "hypothesis": args.get("hypothesis", ""),
-                    "change_summary": args.get("change_summary", ""),
-                    "files_modified": args.get("files_modified", []),
-                    "papers_used": args.get("papers_used", []),
-                }
-                print(f"Done: {result['change_summary']}", file=sys.stderr)
-                return result
+    print(f"Done: {summary.get('change_summary', 'N/A')}", file=sys.stderr)
+    return summary
 
-            result_text = execute_tool(project_dir, name, args)
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tc["id"],
-                "content": result_text,
-            })
 
-        messages.append({"role": "user", "content": tool_results})
-
-    print("Agent did not finish within turn limit.", file=sys.stderr)
-    return None
-
+# ── CLI ──────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Function B: Claude-powered code implementation.",
-        epilog="""Examples:
-  python function_b.py --papers results.json --project-dir /path/to/project
+        description="Function B: Code implementation via Claude Code worker.",
+        epilog="""\
+Examples:
+  python function_b.py --papers results/search.json --project-dir .
   python function_b.py --instruction "increase spd_rank to 8" --project-dir .
-  python function_b.py --papers results.json --project-dir . --files common.py cfg.py
+  python function_b.py --papers results/search.json --project-dir . \\
+      --files models/sam/modeling/common.py cfg.py
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -442,6 +285,8 @@ def main():
                         help="Key files to focus on")
     parser.add_argument("--state", default=None,
                         help="Path to state.json for context")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
+                        help=f"Timeout in seconds (default: {DEFAULT_TIMEOUT})")
     args = parser.parse_args()
 
     if not args.papers and not args.instruction:
@@ -450,7 +295,7 @@ def main():
 
     result = run_implementation(
         args.papers, args.instruction, args.project_dir,
-        args.files, args.state,
+        args.files, args.state, timeout=args.timeout,
     )
 
     if result:

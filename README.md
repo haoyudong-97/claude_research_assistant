@@ -1,16 +1,16 @@
 # Research Agent
 
-A project-agnostic autonomous research loop for Claude Code. All tooling is **pure Python/bash** (no API keys, no Node.js). A live **tmux Claude Code session** orchestrates the loop and collects user feedback.
+A project-agnostic autonomous research loop for Claude Code. The **orchestrator** Claude Code session runs in tmux and controls two **worker** Claude Code sessions (paper search + code implementation) that run in separate tmux windows. No API key needed — uses your Claude subscription.
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Architecture](#architecture)
 - [Components](#components)
 - [Requirements](#requirements)
 - [Activation (Step-by-Step)](#activation-step-by-step)
-- [Architecture](#architecture)
 - [Iteration Protocol](#iteration-protocol)
 - [CLI Reference](#cli-reference)
 - [Monitoring Progress](#monitoring-progress)
@@ -22,27 +22,56 @@ A project-agnostic autonomous research loop for Claude Code. All tooling is **pu
 
 ## Overview
 
-You define a research goal. Claude Code autonomously searches literature, implements changes, runs experiments, and tracks everything via git. After each iteration, it presents results and **waits for your feedback** before continuing. You stay in control; the agent does the grunt work.
+You define a research goal. Claude Code autonomously searches literature, implements changes, runs experiments, and tracks everything via git. After each iteration, it presents results and **waits for your feedback** (or auto-continues in autonomous mode). You stay in control; the agent does the grunt work.
+
+## Architecture
+
+```
+tmux session "research"
+┌─────────────────────────────────────────────────────────┐
+│  window 0: Claude Code (ORCHESTRATOR)                    │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │ Controls the loop:                                  │ │
+│  │  1. Read state.json (recover context)               │ │
+│  │  2. Launch Function A → papers (tmux "search")      │ │
+│  │  3. Launch Function B → code change (tmux "impl")   │ │
+│  │  4. Review changes, git branch + commit             │ │
+│  │  5. Launch experiment (background)                  │ │
+│  │  6. Poll for completion                             │ │
+│  │  7. Analyze, record, commit results                 │ │
+│  │  8. Merge best to main                              │ │
+│  │  9. Summarize to user                               │ │
+│  └─────────────────────────────────────────────────────┘ │
+│                                                          │
+│  window "search": claude -p (Function A worker)          │
+│  window "implement": claude -p (Function B worker)       │
+│                                                          │
+│  User: watches, provides feedback, Ctrl-b d to detach    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key insight:** Workers run in separate tmux windows (not nested inside the orchestrator), so `claude -p` works without nesting issues. The Python scripts handle tmux window creation, prompt piping, and output polling automatically.
 
 ## Components
 
-| File | Language | Purpose |
-|------|----------|---------|
-| `function_a.py` | Python (stdlib) | **Function A**: Literature search via Claude API + web_search |
-| `function_b.py` | Python (stdlib) | **Function B**: Code implementation via Claude API agentic loop |
-| `search_papers.py` | Python (stdlib) | Fallback paper search via Semantic Scholar + arXiv (no API key) |
-| `state.py` | Python (stdlib) | Persistent JSON state + auto-updates `progress.md` |
-| `git_ops.py` | Python (stdlib) | Branch per iteration, structured commits, merge best to main |
-| `run_and_wait.sh` | Bash | Experiment runner with `.done` completion marker |
-| `protocol.md` | Markdown | Research loop protocol (append to your project's CLAUDE.md) |
+| File | Purpose |
+|------|---------|
+| `function_a.py` | **Function A**: Paper search — spawns `claude -p` worker in tmux, uses WebSearch |
+| `function_b.py` | **Function B**: Code implementation — spawns `claude -p` worker in tmux, edits files |
+| `search_papers.py` | Fallback paper search via Semantic Scholar + arXiv APIs (no Claude needed) |
+| `state.py` | Persistent JSON state + auto-updates `progress.md` |
+| `git_ops.py` | Branch per iteration, structured commits, merge best to main |
+| `run_and_wait.sh` | Experiment runner with `.done` completion marker |
+| `protocol.md` | Research loop protocol (append to your project's CLAUDE.md) |
 
 ## Requirements
 
-- **Python 3.10+** (uses `int | None` syntax)
-- **Claude Code CLI** (`npm install -g @anthropic-ai/claude-code`) with an active subscription
-- **ANTHROPIC_API_KEY** environment variable (for Function A and B)
-- **tmux** (for the live interactive session)
+- **Python 3.10+**
+- **Claude Code CLI** (`claude`) with an active subscription
+- **tmux** (for orchestrator + worker windows)
 - **git** (for iteration tracking)
+
+No API key needed. Workers use `claude -p` (pipe mode) which authenticates via your Claude subscription.
 
 ---
 
@@ -50,33 +79,26 @@ You define a research goal. Claude Code autonomously searches literature, implem
 
 ### Step 1: Make the package importable
 
-Either copy into your project or add the parent directory to `PYTHONPATH`:
-
 ```bash
-# Option A: Copy
+# Option A: Copy into your project
 cp -r /data/humanBodyProject/new_proj/research_agent/ /path/to/your/project/
 
-# Option B: PYTHONPATH (add to your .bashrc / .zshrc for persistence)
+# Option B: PYTHONPATH (add to .bashrc for persistence)
 export PYTHONPATH="/data/humanBodyProject/new_proj:$PYTHONPATH"
 ```
 
 ### Step 2: Append the protocol to your project's CLAUDE.md
-
-This tells Claude Code how to run the research loop:
 
 ```bash
 cd /path/to/your/project
 cat research_agent/protocol.md >> CLAUDE.md
 ```
 
-Edit the appended section to customize metric names, experiment scripts, and file paths for your project.
+Edit the appended section to customize metric names, experiment scripts, and file paths.
 
 ### Step 3: Create `progress.md` in your project directory
 
-Write your research goal and constraints. The agent will never touch the content above the sentinel line — it only appends tracking data below.
-
 ```bash
-cd /path/to/your/project
 cat > progress.md << 'EOF'
 # Research Goal
 
@@ -85,49 +107,39 @@ Improve heart segmentation 3D Dice above 0.92 using adapter architecture changes
 ## Constraints
 - Keep parameter count under 1M
 - Must converge within 200 epochs
-- Base architecture: xOD_with_NullspaceBias in models/sam/modeling/common.py
 EOF
 ```
 
-### Step 4: Start a tmux session and launch Claude Code
+### Step 4: Start tmux and launch Claude Code
 
 ```bash
 tmux new -s research
 cd /path/to/your/project
-conda activate your_env        # activate your ML environment
-claude                         # start Claude Code interactively
+conda activate your_env
+claude
 ```
 
 ### Step 5: Tell Claude to start the loop
 
-Inside the Claude Code session, type:
-
 ```
-# Interactive mode (default) — asks for feedback after each iteration:
+# Interactive mode (default):
 Start the research loop from progress.md
 
-# Autonomous mode — runs continuously, auto-decides next steps:
+# Autonomous mode:
 Start the research loop from progress.md, run autonomously
 ```
 
-Claude will:
-1. Read your goal from `progress.md`
-2. Initialize `state.json` (`python -m research_agent.state init --progress progress.md`)
-3. Record your baseline results
-4. Begin the iteration cycle: hypothesize → implement → experiment → analyze → (feedback or auto-continue)
+### Step 6: Provide feedback or monitor
 
-### Step 6: Provide feedback (interactive mode) or monitor (autonomous mode)
+**Interactive mode** — Claude presents a summary after each iteration. You can:
+- Steer: "Focus on token-wise adaptation next"
+- Approve: "Looks good, continue"
+- Reject: "Revert this, try increasing spd_rank instead"
+- Go autonomous: "Continue autonomously"
 
-**Interactive mode** — after each iteration, Claude presents a summary and waits. You can:
-- **Steer direction:** "Focus on token-wise adaptation next"
-- **Approve:** "Looks good, continue"
-- **Reject:** "Revert this change, try increasing spd_rank instead"
-- **Go autonomous:** "Continue autonomously"
-- **Stop:** "Stop the loop, let me review"
-
-**Autonomous mode** — Claude continues without waiting. You can still interrupt at any time:
-- Type a message to give new instructions (Claude reads it at the next iteration boundary)
-- Say "wait for my feedback from now on" to switch back to interactive
+**Autonomous mode** — Claude continues without waiting. Interrupt anytime:
+- Type to give new instructions
+- "Wait for my feedback from now on" to switch to interactive
 
 ### tmux Controls
 
@@ -136,363 +148,160 @@ Claude will:
 | Detach (leave running) | `Ctrl-b d` |
 | Reattach | `tmux attach -t research` |
 | List sessions | `tmux ls` |
-| Kill session | `tmux kill-session -t research` |
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  tmux session                                            │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  Claude Code (interactive)                         │  │
-│  │                                                    │  │
-│  │  Orchestrates the loop:                            │  │
-│  │  ┌──────────────────────────────────────────────┐  │  │
-│  │  │ 1. Read state.json (recover context)         │  │  │
-│  │  │ 2. (Optional) Function A → find papers       │  │  │
-│  │  │ 3. Function B → implement change in code     │  │  │
-│  │  │ 4. Review changes, git branch + commit       │  │  │
-│  │  │ 5. bash run_and_wait.sh (background)         │  │  │
-│  │  │ 6. Poll for .done marker                     │  │  │
-│  │  │ 7. Analyze, state.py add-iteration           │  │  │
-│  │  │ 8. git_ops.py commit-results                 │  │  │
-│  │  │ 9. Summarize results to user                 │  │  │
-│  │  │ 10. Wait for feedback OR auto-continue       │  │  │
-│  │  │ 11. Repeat                                   │  │  │
-│  │  └──────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│  User: watches live, provides feedback at step 12        │
-│  Detach: Ctrl-b d  |  Reattach: tmux attach -t research  │
-└──────────────────────────────────────────────────────────┘
-```
-
-**Python tools** handle all data operations (search, state, git). **Claude Code** handles intelligence (evaluation, hypothesis formation, code implementation, result analysis) and the interactive feedback loop.
+| See worker windows | `Ctrl-b w` (window list) |
 
 ---
 
 ## Iteration Protocol
 
-Each iteration follows this sequence. Claude executes these steps autonomously, using the Python CLI tools via Bash.
-
-### First-time setup
-
-1. Read `progress.md` to understand the goal.
-2. Initialize state:
-   ```bash
-   python -m research_agent.state init --progress progress.md --metric "test_3d_dice"
-   ```
-3. Record baseline:
-   ```bash
-   python -m research_agent.state set-baseline \
-     --checkpoint checkpoints/baseline \
-     --metrics '{"test_3d_dice": 0.905, "test_3d_nsd": 0.940}'
-   ```
-
-### Each iteration
-
 | Step | Action | Tool |
 |------|--------|------|
 | 1 | Read state (recover context) | `python -m research_agent.state read` |
-| 2 | *(Optional)* **Function A** — find papers | `python research_agent/function_a.py "topic" results.json --state state.json` |
-| 3 | **Function B** — implement change | `python research_agent/function_b.py --papers results.json --project-dir .` or `--instruction "..."` |
-| 4 | Review changes, create branch | `python -m research_agent.git_ops branch-start ...` |
-| 5 | Commit code + push | `python -m research_agent.git_ops commit-code ...` then `push` |
-| 6 | Launch experiment | `bash research_agent/run_and_wait.sh <script> <checkpoint_dir>` |
-| 7 | Poll for completion | `test -f <checkpoint_dir>/.done && cat ... \|\| echo RUNNING` |
-| 8 | Analyze results | Claude (reads eval logs, compares to baseline/best) |
-| 9 | Record iteration | `python -m research_agent.state add-iteration ...` |
-| 10 | Commit results | `python -m research_agent.git_ops commit-results --iteration N --state state.json` |
-| 11 | Merge if best | `python -m research_agent.git_ops merge-best --state state.json` |
-| 12 | Summarize | Claude (shows results to user) |
-| 13 | Next iteration | Wait for user feedback **or** auto-decide (see modes below) |
+| 2 | *(Optional)* Function A — find papers | `python research_agent/function_a.py ...` |
+| 3 | Create git branch | `python -m research_agent.git_ops branch-start ...` |
+| 4 | Function B — implement change | `python research_agent/function_b.py ...` |
+| 5 | Review changes | `git diff` |
+| 6 | Commit code + push | `python -m research_agent.git_ops commit-code ...` + `push` |
+| 7 | Launch experiment | `bash research_agent/run_and_wait.sh <script> <dir>` |
+| 8 | Poll for completion | `test -f <dir>/.done && cat <dir>/.done \|\| echo RUNNING` |
+| 9 | Analyze results | Read eval logs, compare to baseline/best |
+| 10 | Record iteration | `python -m research_agent.state add-iteration ...` |
+| 11 | Commit results + push | `python -m research_agent.git_ops commit-results ...` + `push` |
+| 12 | Merge if best | `python -m research_agent.git_ops merge-best ...` + `push` |
+| 13 | Summarize to user | Present results and proposed next steps |
+| 14 | Next iteration | Wait for feedback OR auto-decide |
 
-### Operating Modes
-
-| Mode | How to activate | Behavior after each iteration |
-|------|----------------|-------------------------------|
-| **Interactive** (default) | Just start normally | Presents summary, waits for user feedback |
-| **Autonomous** | "Start the research loop autonomously" or "continue autonomously" | Analyzes results, auto-decides next step, continues without waiting |
-
-In autonomous mode, Claude stops and asks the user when:
-- The goal metric is reached
-- The metric has plateaued for 3+ iterations
-- It's unsure what to try next
-
-The user can switch modes at any time: "wait for my feedback from now on" or "continue autonomously".
-
-**When to search papers:**
-- Exploring a new technique you haven't tried before
-- User asks "what does the literature say about X?"
-- Previous iterations plateaued and you need fresh ideas
+**When to search papers (Function A):**
+- Exploring a new technique
+- Previous iterations plateaued, need fresh ideas
+- User asks about literature
 
 **When to skip search:**
-- User gave a specific instruction ("try lr=5e-5", "add dropout 0.1")
-- The next step is obvious from analyzing previous results
-- User said "don't search, just try X"
+- User gave a specific instruction
+- Next step is obvious from previous results
 
 ---
 
 ## CLI Reference
 
-### function_a.py — Literature Search (Claude API)
+### function_a.py — Paper Search (tmux worker)
 
 ```bash
 # Search with explicit topic
-python research_agent/function_a.py "Householder orthogonal adapters ViT" results.json
+python research_agent/function_a.py "orthogonal adapter fine-tuning" results/search.json
 
-# With project context (auto-deduplicates against previously used papers)
-python research_agent/function_a.py "PEFT medical segmentation" results.json --state state.json
+# With project context (auto-deduplicates)
+python research_agent/function_a.py "PEFT medical segmentation" results/search.json --state state.json
 
-# Auto-generate topic from last iteration's feedback
-python research_agent/function_a.py --auto results.json --state state.json
+# Auto-generate topic from last iteration
+python research_agent/function_a.py --auto results/search.json --state state.json
+
+# Custom timeout (default: 300s)
+python research_agent/function_a.py "topic" results/search.json --timeout 600
 ```
 
-**Output:** JSON array with `title`, `authors`, `year`, `abstract`, `url`, `arxiv_id`, `relevance` (1-5), `relevance_reason`, `key_idea`.
+**How it works:** Writes a prompt file, launches `claude -p` in tmux window "search", polls for output, parses JSON array of papers.
 
-**How it works:** Calls Claude API with the `web_search` server-side tool. Claude plans queries, searches the web, evaluates relevance, and returns structured results. Papers already referenced in previous iterations are excluded.
-
-### function_b.py — Code Implementation (Claude API)
+### function_b.py — Code Implementation (tmux worker)
 
 ```bash
-# Implement from paper results (from Function A)
-python research_agent/function_b.py --papers results.json --project-dir . --state state.json
+# From paper results
+python research_agent/function_b.py --papers results/search.json --project-dir .
 
-# Implement from direct instruction (no papers needed)
+# From direct instruction
 python research_agent/function_b.py --instruction "increase spd_rank to 8" --project-dir .
 
-# Focus on specific files
-python research_agent/function_b.py --papers results.json --project-dir . \
-  --files models/sam/modeling/common.py cfg.py
+# With context and file focus
+python research_agent/function_b.py --papers results/search.json --project-dir . \
+  --state state.json --files models/sam/modeling/common.py cfg.py
+
+# Custom timeout (default: 600s)
+python research_agent/function_b.py --instruction "..." --project-dir . --timeout 900
 ```
 
-**Output:** JSON summary to stdout: `{hypothesis, change_summary, files_modified, papers_used}`. Files are modified in place.
+**How it works:** Writes a prompt file, launches `claude -p` in tmux window "implement" (from the project directory), polls for output, parses change summary JSON.
 
-**How it works:** Runs a Claude API agentic loop with tools (`read_file`, `edit_file`, `list_files`, `search_code`). Claude reads the codebase, plans changes, and makes targeted edits. Calls the `done` tool when finished.
+**Output:** JSON to stdout: `{hypothesis, change_summary, files_modified, papers_used}`
 
-### search_papers.py — Fallback Search (no API key)
+### search_papers.py — Fallback Search (no Claude needed)
 
 ```bash
-# Semantic Scholar + arXiv (free, no auth)
-python research_agent/search_papers.py "query terms" output.json --limit 10 --year-min 2023
+python research_agent/search_papers.py "query" --limit 10 --year-min 2023
 ```
 
-**Output:** JSON array with `title`, `authors`, `year`, `abstract`, `url`, `arxiv_id`, `citations`, `source`. No relevance scoring (use Function A for that).
+Uses Semantic Scholar + arXiv APIs directly. No relevance scoring.
 
 ### state.py — State Management
 
 ```bash
-# Initialize from progress.md
 python -m research_agent.state init --progress progress.md --metric test_3d_dice
-
-# Initialize with explicit goal
-python -m research_agent.state init --goal "improve dice above 0.92" --metric test_3d_dice
-
-# Read full state
 python -m research_agent.state read
-
-# Read specific field
 python -m research_agent.state read --field best
-
-# Record baseline
-python -m research_agent.state set-baseline \
-  --checkpoint checkpoints/baseline \
-  --metrics '{"test_3d_dice": 0.905, "test_3d_nsd": 0.940}'
-
-# Record iteration
+python -m research_agent.state set-baseline --checkpoint "..." --metrics '{"test_3d_dice": 0.905}'
 python -m research_agent.state add-iteration \
-  --hypothesis "Higher SPD rank increases expressiveness" \
-  --change "spd_rank 4 -> 8" \
-  --checkpoint checkpoints/exp1 \
+  --hypothesis "..." --change "..." --checkpoint "..." \
   --metric-name test_3d_dice --metric-value 0.912 \
-  --metric-name test_3d_nsd --metric-value 0.945 \
-  --papers "LoRA 2021" "OFT 2023" \
-  --feedback "marginal gain, try token-wise FiLM next"
-
-# Update progress note
-python -m research_agent.state update-progress --status "Waiting for experiment 3"
-
-# Generate markdown report
+  --feedback "..."
 python -m research_agent.state report
-python -m research_agent.state report --output research_report.md
 ```
-
-**Environment variables:**
-- `RESEARCH_STATE_FILE` — override state file path (default: `state.json`)
-- `RESEARCH_PROGRESS_FILE` — override progress file path (default: `progress.md`)
 
 ### git_ops.py — Git Workflow
 
 ```bash
-# Create iteration branch from main
-python -m research_agent.git_ops branch-start --iteration 3 --change "enable token-wise FiLM"
-
-# Commit code changes (before experiment)
-python -m research_agent.git_ops commit-code --iteration 3 \
-  --hypothesis "Token-wise FiLM enables per-token adaptation" \
-  --change "cond_scale_tokenwise=True" \
-  --papers "FiLM 2018" "AdaptFormer 2022" \
-  --checkpoint "checkpoints/exp_tokenfilm"
-
-# Commit results (after experiment)
+python -m research_agent.git_ops branch-start --iteration 3 --change "enable tokenwise film"
+python -m research_agent.git_ops commit-code --iteration 3 --hypothesis "..." --change "..."
 python -m research_agent.git_ops commit-results --iteration 3 --state state.json
-
-# Merge best iteration into main
 python -m research_agent.git_ops merge-best --state state.json
-
-# Push current branch / all branches
 python -m research_agent.git_ops push
-python -m research_agent.git_ops push-all
-
-# View iteration history
 python -m research_agent.git_ops log
 ```
 
 ### run_and_wait.sh — Experiment Runner
 
 ```bash
-# Launch (typically in background from Claude):
-bash research_agent/run_and_wait.sh scripts/my_experiment.sh checkpoints/my_exp/
-
-# Creates:
-#   checkpoints/my_exp/.status    — start time, script path, PID
-#   checkpoints/my_exp/.done      — exit code, completion time (when finished)
-#   checkpoints/my_exp/training.log — full stdout+stderr
-```
-
-**Polling pattern** (used by Claude):
-```bash
-test -f checkpoints/my_exp/.done && cat checkpoints/my_exp/.done || echo RUNNING
+bash research_agent/run_and_wait.sh scripts/my_exp.sh checkpoints/my_exp/
+# Poll: test -f checkpoints/my_exp/.done && cat checkpoints/my_exp/.done || echo RUNNING
 ```
 
 ---
 
 ## Monitoring Progress
 
-### From any terminal (outside the tmux session)
-
 ```bash
-# Quick status — human-readable
+# Human-readable status
 cat progress.md
 
-# Full machine-readable state
+# Machine-readable state
 python -m research_agent.state read
 
-# Just the best result
+# Best result only
 python -m research_agent.state read --field best
 
-# Markdown report
-python -m research_agent.state report
-
-# Git log of all iterations
+# Git iteration history
 python -m research_agent.git_ops log
 
-# Check if experiment is running
+# Check experiment status
 test -f checkpoints/my_exp/.done && cat checkpoints/my_exp/.done || echo RUNNING
-```
-
-### progress.md auto-updated format
-
-```markdown
-# Research Goal                          <-- your text, never touched
-
-(your goal and constraints)
-
-<!-- AGENT PROGRESS BELOW — auto-updated, do not edit below this line -->
-
-## Status
-
-| | |
-|---|---|
-| **Primary metric** | `test_3d_dice` |
-| **Baseline** | 0.905 |
-| **Best** | 0.921 (iter 3) |
-| **Iterations** | 5 |
-
-> **Current direction:** Trying token-wise FiLM
-
-## Iteration Log
-
-| # | Change | test_3d_dice | vs baseline | Feedback |
-|---|--------|-------------|------------|----------|
-| 1 | spd_rank 4->8 | 0.908 | +0.0032 | marginal gain |
-| 2 | token-wise FiLM | 0.915 | +0.0102 | promising |
-| 3 | FiLM + bias scale | 0.921 | +0.0162 | new best |
-
-## Recent Iterations (detail)
-
-### Iteration 3 — 2026-02-20 14:30:00
-- **Hypothesis:** Combining token-wise FiLM with larger bias scale
-- **Change:** cond_scale_tokenwise=True, bias_max_scale=0.1
-- **Papers:** FiLM 2018, AdaptFormer 2022
-- **Checkpoint:** `checkpoints/exp_film_bias`
-- **Metrics:** {"test_3d_dice": 0.921, "test_3d_nsd": 0.955}
-- **Feedback:** new best, significant improvement
 ```
 
 ---
 
 ## Git Workflow
 
-Every iteration is a **git branch** with structured commits. `main` always reflects the best-performing configuration.
-
-### Branch structure
-
 ```
-main                          ← best configuration
-├── iter/1-spd-rank-increase  ← each iteration is a branch
-├── iter/2-tokenwise-film     ← 2 commits per branch: code + results
+main                          ← best configuration (merged after each new best)
+├── iter/1-spd-rank-increase  ← 2 commits: code + results
+├── iter/2-tokenwise-film
 └── iter/3-film-bias-scale
 ```
 
-### Commit message format
-
-**Code commit** (before experiment):
-```
-iter/3: cond_scale_tokenwise=True, bias_max_scale=0.1
-
-Hypothesis: Combining token-wise FiLM with larger bias scale
-Change: cond_scale_tokenwise=True, bias_max_scale=0.1
-Papers: FiLM 2018, AdaptFormer 2022
-Checkpoint: checkpoints/exp_film_bias
-
-Status: experiment pending
-```
-
-**Results commit** (after experiment):
-```
-iter/3: results — test_3d_dice: 0.921 (+0.0162)
-
-Results:
-  test_3d_dice: 0.921 (+0.0162 vs baseline)
-  test_3d_nsd: 0.955 (+0.0150 vs baseline)
-
-Hypothesis: Combining token-wise FiLM with larger bias scale
-Change: cond_scale_tokenwise=True, bias_max_scale=0.1
-Feedback: new best, significant improvement
-
-*** NEW BEST ***
-```
-
-### Commands reference
-
-| Command | When | What |
-|---------|------|------|
-| `branch-start` | Before coding | Creates `iter/N-slug` from main |
-| `commit-code` | After coding, before experiment | Structured commit with hypothesis |
-| `commit-results` | After experiment | Commit with metrics + delta |
-| `merge-best` | When new best found | Merges best branch into main |
-| `push` | After any commit | Pushes current branch |
-| `push-all` | Periodically | Pushes main + all iter branches |
-| `log` | Anytime | Shows all iteration commits |
+Each iteration: `branch-start` → `commit-code` → experiment → `commit-results` → (if best) `merge-best`
 
 ---
 
 ## State File Schema
 
-`state.json` — persistent across context compression and session restarts.
+`state.json` — persists across context compression and session restarts.
 
 ```json
 {
@@ -506,19 +315,18 @@ Feedback: new best, significant improvement
   },
   "best": {
     "iteration": 3,
-    "metrics": {"test_3d_dice": 0.921, "test_3d_nsd": 0.955},
-    "experiment": "cond_scale_tokenwise=True, bias_max_scale=0.1"
+    "metrics": {"test_3d_dice": 0.921},
+    "experiment": "tokenwise film + bias scale"
   },
   "iterations": [
     {
-      "id": 1,
-      "timestamp": "2026-02-20 10:30:00",
+      "id": 1, "timestamp": "2026-02-20 10:30:00",
       "hypothesis": "Increasing SPD rank adds expressiveness",
-      "change_summary": "spd_rank 4 -> 8",
-      "papers_referenced": ["LoRA 2021", "OFT 2023"],
-      "checkpoint": "checkpoints/exp_spd_rank8",
-      "metrics": {"test_3d_dice": 0.908, "test_3d_nsd": 0.943},
-      "feedback": "marginal gain, try token-wise FiLM next"
+      "change_summary": "spd_rank 4->8",
+      "papers_referenced": ["LoRA 2021"],
+      "checkpoint": "checkpoints/exp1",
+      "metrics": {"test_3d_dice": 0.908},
+      "feedback": "marginal gain"
     }
   ]
 }
@@ -528,46 +336,27 @@ Feedback: new best, significant improvement
 
 ## Customization
 
-### Different primary metric
-
 ```bash
+# Different metric
 python -m research_agent.state init --progress progress.md --metric val_loss
-```
 
-### Different experiment runner
-
-Edit `run_and_wait.sh` or write your own — just ensure it creates a `<dir>/.done` file on completion.
-
-### GitLab remote
-
-Set up a remote for git tracking:
-
-```bash
-cd /path/to/your/project
-git remote add origin https://gitlab.example.com/user/repo.git
-```
-
-The `git_ops.py push` commands will use whatever remote is configured.
-
-### Override file locations
-
-```bash
+# Override file locations
 export RESEARCH_STATE_FILE=my_state.json
 export RESEARCH_PROGRESS_FILE=my_progress.md
 ```
+
+For git tracking, configure a remote: `git remote add origin https://...`
 
 ---
 
 ## Rules (for Claude)
 
-These are enforced by `protocol.md` when appended to your CLAUDE.md:
-
-1. **ONE change per iteration** — isolate variables for clean comparison
-2. **NEVER overwrite checkpoints** — each iteration gets a unique directory
-3. **ALWAYS commit before experiments** — code must be in git before long jobs start
-4. **Re-read state.json** at the start of every iteration to recover context
-5. **Primary metric drives decisions** — always report secondary metrics too
-6. **Cite papers** — note references when a technique comes from literature
+1. **ONE change per iteration** — isolate variables
+2. **NEVER overwrite checkpoints** — unique directory per iteration
+3. **Create branch + commit BEFORE experiments** — code must be in git first
+4. **Re-read state.json** every iteration — recover context after compression
+5. **Review Function B's changes** — always `git diff` before committing
+6. **Push after every commit** — keep remote in sync
 7. **Never edit the user's goal** in `progress.md`
-8. **Push after every commit** — keep the remote in sync
-9. **Review Function B's output** — always verify changes before committing
+8. **Cite papers** when techniques come from literature
+9. **Present clear summaries** — user is watching in tmux

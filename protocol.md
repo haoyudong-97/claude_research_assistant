@@ -2,6 +2,19 @@
 
 When asked to start a research loop, follow this protocol. You are running in a **live tmux session** — the user can watch your progress, detach/reattach, and provide feedback.
 
+### Architecture
+
+You (the orchestrator) run in tmux **pane 0**. Worker Claude Code sessions run in **separate tmux windows** — they are independent processes that can read/edit/search without nesting issues.
+
+```
+tmux session "research"
+  ├── window 0: You (orchestrator) — controls the loop, reads results
+  ├── window "search":    claude -p for Function A (paper search)
+  └── window "implement": claude -p for Function B (code changes)
+```
+
+Workers are launched automatically by Function A/B Python scripts. No API key needed — everything uses your Claude subscription.
+
 ### Operating Modes
 
 The loop supports two modes, set by the user at startup or changed between iterations:
@@ -13,12 +26,10 @@ The user can switch modes at any time by saying "continue autonomously" or "wait
 
 ### Core Functions
 
-The loop is built around two Claude API-powered Python functions:
+- **Function A** (`function_a.py`): Literature search. Spawns a Claude Code worker in a tmux window → uses WebSearch to find papers → returns ranked JSON.
+- **Function B** (`function_b.py`): Code implementation. Spawns a Claude Code worker in a tmux window → reads code, plans edits, modifies files → returns change summary JSON.
 
-- **Function A** (`function_a.py`): Literature search. Takes a topic → calls Claude API with web_search → returns ranked papers as JSON.
-- **Function B** (`function_b.py`): Code implementation. Takes papers or instructions → calls Claude API agentic loop with file read/edit tools → modifies the codebase.
-
-These are called by the main Claude Code session (you) via Bash. You orchestrate, they execute.
+These are called by you (the orchestrator) via Bash. They handle tmux pane creation and polling internally.
 
 ### progress.md
 
@@ -89,11 +100,18 @@ main                          ← always has the best-performing code
    ```
    python research_agent/function_a.py --auto results/search_iter3.json --state state.json
    ```
-   - Calls Claude API with web_search to find papers.
+   - Spawns a Claude Code worker in tmux window "search".
+   - Worker uses WebSearch to find papers, returns ranked JSON.
    - Auto-deduplicates against papers already used in previous iterations.
+   - Script polls for completion and returns results.
    - Skip when the user gives a specific instruction or the next step is obvious.
 
-4. **Function B — implement the change:**
+4. **Create branch** (BEFORE implementing changes):
+   ```
+   python -m research_agent.git_ops branch-start --iteration 3 --change "enable tokenwise film"
+   ```
+
+5. **Function B — implement the change:**
    ```
    # From papers:
    python research_agent/function_b.py --papers results/search_iter3.json \
@@ -104,33 +122,36 @@ main                          ← always has the best-performing code
    python research_agent/function_b.py --instruction "increase spd_rank to 8" \
      --project-dir . --state state.json
    ```
-   - Claude API agentic loop: reads code, plans edits, modifies files.
+   - Spawns a Claude Code worker in tmux window "implement".
+   - Worker reads code, plans edits, modifies files directly.
    - Returns JSON summary: `{hypothesis, change_summary, files_modified, papers_used}`.
 
-5. **Review changes** — read what Function B modified, verify correctness.
-
-6. **Create branch + commit code:**
+6. **Review changes** — read what Function B modified, verify correctness:
    ```
-   python -m research_agent.git_ops branch-start --iteration 3 --change "..."
+   git diff
+   ```
+
+7. **Commit code** (before experiment):
+   ```
    python -m research_agent.git_ops commit-code --iteration 3 \
      --hypothesis "..." --change "..." --papers "..." \
      --checkpoint "checkpoints/exp_..."
    python -m research_agent.git_ops push
    ```
 
-7. **Execute experiment** — launch in background:
+8. **Execute experiment** — launch in background:
    ```
    bash research_agent/run_and_wait.sh <script> <checkpoint_dir>
    ```
 
-8. **Poll** — check completion every ~10 minutes:
+9. **Poll** — check completion every ~10 minutes:
    ```
    test -f <checkpoint_dir>/.done && cat <checkpoint_dir>/.done || echo RUNNING
    ```
 
-9. **Analyze** — read results, compare with baseline and previous best.
+10. **Analyze** — read results, compare with baseline and previous best.
 
-10. **Update state** — record iteration (auto-updates `progress.md`):
+11. **Update state** — record iteration (auto-updates `progress.md`):
     ```
     python -m research_agent.state add-iteration \
       --hypothesis "..." --change "..." --checkpoint "..." \
@@ -138,20 +159,21 @@ main                          ← always has the best-performing code
       --feedback "..."
     ```
 
-11. **Commit results:**
+12. **Commit results:**
     ```
     python -m research_agent.git_ops commit-results --iteration 3 --state state.json
+    python -m research_agent.git_ops push
     ```
 
-12. **If new best → merge to main** and push:
+13. **If new best → merge to main** and push:
     ```
     python -m research_agent.git_ops merge-best --state state.json
     python -m research_agent.git_ops push
     ```
 
-13. **Summarize** — present results and proposed next steps to user.
+14. **Summarize** — present results and proposed next steps to user.
 
-14. **Next iteration decision:**
+15. **Next iteration decision:**
     - **Interactive mode:** Wait for user feedback before continuing.
     - **Autonomous mode:** Auto-decide the next step based on results:
       - **Improved?** → Build on it (vary the same knob, combine with another).
@@ -172,10 +194,12 @@ When running autonomously, use these heuristics to decide what to try next:
 
 ### Git Commands Reference
 
+All commands run via `python -m research_agent.git_ops <command>`:
+
 | Command | When | What it does |
 |---------|------|-------------|
-| `branch-start --iteration N --change "..."` | Before coding | Creates `iter/N-slug` from main |
-| `commit-code --iteration N --hypothesis "..." --change "..."` | After coding, before experiment | Commits code with structured message |
+| `branch-start --iteration N --change "..."` | Before Function B | Creates `iter/N-slug` from main |
+| `commit-code --iteration N --hypothesis "..." --change "..."` | After Function B, before experiment | Commits code with structured message |
 | `commit-results --iteration N --state state.json` | After experiment results | Commits with metrics + delta vs baseline |
 | `merge-best --state state.json` | When new best found | Merges best branch into main |
 | `push` | After commit or merge | Pushes current branch to remote |
@@ -186,12 +210,12 @@ When running autonomously, use these heuristics to decide what to try next:
 
 - **ONE principal change per iteration** — isolate variables for clean comparison.
 - **NEVER overwrite previous checkpoints** — each iteration gets a unique checkpoint directory.
-- **ALWAYS commit before running experiments** — code changes must be tracked in git before any long-running job starts.
+- **ALWAYS create branch + commit before running experiments** — code changes must be in git before any long-running job starts.
 - **Re-read state.json** at the start of every iteration to recover context.
 - **Primary metric drives decisions**; always report secondary metrics too.
 - **Save experiment scripts** — each iteration's script should be reproducible.
 - **Cite papers** — when a technique comes from literature, note the reference.
 - **Never edit the user's goal section** in `progress.md`.
-- **Push after every commit** — keep GitLab in sync so nothing is lost.
+- **Push after every commit** — keep remote in sync so nothing is lost.
 - **Present clear summaries** — the user is watching in tmux, make status updates readable.
-- **Review Function B's changes** — always verify what it modified before committing.
+- **Review Function B's changes** — always `git diff` after Function B before committing.
