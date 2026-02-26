@@ -57,7 +57,7 @@ def _load_state(state_path: str) -> dict:
     if not p.exists():
         print(f"Error: state file not found: {state_path}", file=sys.stderr)
         sys.exit(1)
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         return json.load(f)
 
 

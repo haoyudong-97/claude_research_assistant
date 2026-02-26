@@ -42,7 +42,7 @@ def _load() -> dict:
     p = _state_path()
     if not p.exists():
         return {}
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -50,7 +50,7 @@ def _save(state: dict) -> None:
     """Save state to disk with pretty formatting."""
     p = _state_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
+    with open(p, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
@@ -65,7 +65,7 @@ def _read_progress_goal(progress_file: str | None) -> str:
     p = Path(progress_file) if progress_file else _progress_path()
     if not p.exists():
         return ""
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     # Everything above the sentinel is the user's goal
     if PROGRESS_SENTINEL in text:
         return text.split(PROGRESS_SENTINEL)[0].strip()
@@ -79,7 +79,7 @@ def _write_progress(state: dict, status_note: str = "") -> None:
     # Read existing content to preserve user's goal section
     user_section = ""
     if p.exists():
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         if PROGRESS_SENTINEL in text:
             user_section = text.split(PROGRESS_SENTINEL)[0].rstrip()
         else:
@@ -183,7 +183,7 @@ def _write_progress(state: dict, status_note: str = "") -> None:
     # Write combined file
     output = user_section + "\n" + "\n".join(lines)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(output)
+    p.write_text(output, encoding="utf-8")
 
 
 def cmd_init(args) -> None:
@@ -371,7 +371,7 @@ def cmd_report(args) -> None:
     report = "\n".join(lines)
 
     if args.output:
-        with open(args.output, "w") as f:
+        with open(args.output, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"Report written to {args.output}")
     else:

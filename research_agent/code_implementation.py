@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Function B: Code implementation via Claude Code worker in a tmux pane.
+"""Code implementation via Claude Code worker in a tmux pane.
 
 Launches `claude -p` in a separate tmux window to implement code changes.
 The worker Claude Code reads, edits, and creates files directly in the project.
@@ -7,13 +7,13 @@ Uses the user's Claude subscription (no API key needed).
 
 Usage:
     # From paper results:
-    python research_agent/function_b.py --papers results/search.json --project-dir .
+    python research_agent/code_implementation.py --papers results/search.json --project-dir .
 
     # From direct instruction:
-    python research_agent/function_b.py --instruction "increase spd_rank to 8" --project-dir .
+    python research_agent/code_implementation.py --instruction "increase spd_rank to 8" --project-dir .
 
     # With specific files to focus on:
-    python research_agent/function_b.py --papers results/search.json --project-dir . \
+    python research_agent/code_implementation.py --papers results/search.json --project-dir . \
         --files models/sam/modeling/common.py cfg.py
 
 Output:
@@ -57,7 +57,7 @@ def _build_prompt(papers_path: str | None, instruction: str | None,
     # Papers context
     if papers_path and Path(papers_path).exists():
         try:
-            papers = json.loads(Path(papers_path).read_text())
+            papers = json.loads(Path(papers_path).read_text(encoding="utf-8"))
             top = sorted(papers, key=lambda p: p.get("relevance", 0),
                          reverse=True)[:3]
             parts.append("## Papers to implement from:\n")
@@ -78,7 +78,7 @@ def _build_prompt(papers_path: str | None, instruction: str | None,
     # Project context from state
     if state_path and Path(state_path).exists():
         try:
-            state = json.loads(Path(state_path).read_text())
+            state = json.loads(Path(state_path).read_text(encoding="utf-8"))
             parts.append("## Project context")
             parts.append(f"Goal: {state.get('goal', 'N/A')}")
             parts.append(f"Primary metric: {state.get('primary_metric', 'N/A')}")
@@ -209,7 +209,7 @@ def run_implementation(papers_path: str | None, instruction: str | None,
     for f in [worker_out, done_marker, err_file]:
         f.unlink(missing_ok=True)
 
-    prompt_file.write_text(prompt)
+    prompt_file.write_text(prompt, encoding="utf-8")
 
     # Build command: cd to project dir, run claude -p with file tools
     proj_abs = shlex.quote(str(Path(project_dir).resolve()))
@@ -250,9 +250,9 @@ def run_implementation(papers_path: str | None, instruction: str | None,
             print(f"  Still implementing... ({int(elapsed)}s)", file=sys.stderr)
 
     # Check exit code
-    exit_code = done_marker.read_text().strip()
+    exit_code = done_marker.read_text(encoding="utf-8").strip()
     if exit_code != "0":
-        err_text = err_file.read_text() if err_file.exists() else "unknown"
+        err_text = err_file.read_text(encoding="utf-8") if err_file.exists() else "unknown"
         print(f"Worker exited with code {exit_code}: {err_text[:500]}",
               file=sys.stderr)
         # Still try to parse — partial output may be useful
@@ -261,7 +261,7 @@ def run_implementation(papers_path: str | None, instruction: str | None,
         print("No output produced by worker", file=sys.stderr)
         return None
 
-    raw = worker_out.read_text()
+    raw = worker_out.read_text(encoding="utf-8")
     summary = _extract_summary(raw)
 
     print(f"Done: {summary.get('change_summary', 'N/A')}", file=sys.stderr)
@@ -272,18 +272,18 @@ def run_implementation(papers_path: str | None, instruction: str | None,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Function B: Code implementation via Claude Code worker.",
+        description="Code implementation via Claude Code worker.",
         epilog="""\
 Examples:
-  python function_b.py --papers results/search.json --project-dir .
-  python function_b.py --instruction "increase spd_rank to 8" --project-dir .
-  python function_b.py --papers results/search.json --project-dir . \\
+  python code_implementation.py --papers results/search.json --project-dir .
+  python code_implementation.py --instruction "increase spd_rank to 8" --project-dir .
+  python code_implementation.py --papers results/search.json --project-dir . \\
       --files models/sam/modeling/common.py cfg.py
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--papers", default=None,
-                        help="Path to papers JSON from function_a")
+                        help="Path to papers JSON from literature_search")
     parser.add_argument("--instruction", default=None,
                         help="Direct instruction (alternative to papers)")
     parser.add_argument("--project-dir", default=".",

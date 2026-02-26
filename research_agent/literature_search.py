@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Function A: Literature search via Claude Code worker in a tmux pane.
+"""Literature search via Claude Code worker in a tmux pane.
 
 Launches `claude -p` in a separate tmux window to perform web searches
 for relevant papers. Uses the user's Claude subscription (no API key needed).
 
 Usage:
-    python research_agent/function_a.py "topic" output.json
-    python research_agent/function_a.py "topic" output.json --state state.json
-    python research_agent/function_a.py --auto output.json --state state.json
+    python research_agent/literature_search.py "topic" output.json
+    python research_agent/literature_search.py "topic" output.json --state state.json
+    python research_agent/literature_search.py --auto output.json --state state.json
 
 The --auto flag generates the search topic from the last iteration's
 feedback in state.json.
@@ -32,7 +32,7 @@ def _project_tag(state_path: str | None) -> str:
     """Derive a short project tag from state.json's project_dir or fallback."""
     if state_path and Path(state_path).exists():
         try:
-            state = json.loads(Path(state_path).read_text())
+            state = json.loads(Path(state_path).read_text(encoding="utf-8"))
             pdir = state.get("project_dir", "")
             if pdir:
                 return Path(pdir).name.lower().replace(" ", "-")[:20]
@@ -49,7 +49,7 @@ def _build_context(state_path: str | None) -> tuple[str, list[str]]:
         return "", []
 
     try:
-        state = json.loads(Path(state_path).read_text())
+        state = json.loads(Path(state_path).read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError):
         return "", []
 
@@ -89,7 +89,7 @@ def _auto_topic(state_path: str) -> str:
               file=sys.stderr)
         sys.exit(1)
 
-    state = json.loads(Path(state_path).read_text())
+    state = json.loads(Path(state_path).read_text(encoding="utf-8"))
     iters = state.get("iterations", [])
     goal = state.get("goal", "")
 
@@ -219,7 +219,7 @@ def run_search(topic: str, output_path: str,
     for f in [worker_out, done_marker, err_file]:
         f.unlink(missing_ok=True)
 
-    prompt_file.write_text(prompt)
+    prompt_file.write_text(prompt, encoding="utf-8")
 
     # Build the command for the tmux worker pane
     cmd = (
@@ -259,9 +259,9 @@ def run_search(topic: str, output_path: str,
             print(f"  Searching... ({int(elapsed)}s)", file=sys.stderr)
 
     # Check exit code
-    exit_code = done_marker.read_text().strip()
+    exit_code = done_marker.read_text(encoding="utf-8").strip()
     if exit_code != "0":
-        err_text = err_file.read_text() if err_file.exists() else "unknown"
+        err_text = err_file.read_text(encoding="utf-8") if err_file.exists() else "unknown"
         print(f"Worker exited with code {exit_code}: {err_text[:500]}",
               file=sys.stderr)
         # Still try to parse output — Claude may have produced partial results
@@ -270,12 +270,12 @@ def run_search(topic: str, output_path: str,
         print("No output produced by worker", file=sys.stderr)
         return None
 
-    raw = worker_out.read_text()
+    raw = worker_out.read_text(encoding="utf-8")
     papers = _extract_json_array(raw)
 
     if papers is not None:
         # Write clean JSON to user-specified output path
-        with open(out, "w") as f:
+        with open(out, "w", encoding="utf-8") as f:
             json.dump(papers, f, indent=2, ensure_ascii=False)
             f.write("\n")
         print(f"Found {len(papers)} papers -> {output_path}", file=sys.stderr)
@@ -290,12 +290,12 @@ def run_search(topic: str, output_path: str,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Function A: Paper search via Claude Code worker.",
+        description="Literature search: Paper search via Claude Code worker.",
         epilog="""\
 Examples:
-  python function_a.py "orthogonal adapter fine-tuning" results/search.json
-  python function_a.py "PEFT medical segmentation" results/search.json --state state.json
-  python function_a.py --auto results/search.json --state state.json
+  python literature_search.py "orthogonal adapter fine-tuning" results/search.json
+  python literature_search.py "PEFT medical segmentation" results/search.json --state state.json
+  python literature_search.py --auto results/search.json --state state.json
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

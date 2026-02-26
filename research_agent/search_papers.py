@@ -198,7 +198,7 @@ def _enrich_from_state(state_path: str | None) -> list[str]:
     if not state_path or not Path(state_path).exists():
         return []
     try:
-        state = json.loads(Path(state_path).read_text())
+        state = json.loads(Path(state_path).read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError):
         return []
 
@@ -243,7 +243,7 @@ def run_search(query: str, output_path: str, limit: int = 10,
     # 5. Write output
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         json.dump(papers, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
