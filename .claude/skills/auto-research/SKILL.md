@@ -1,16 +1,18 @@
 ---
 name: auto-research
-description: End-to-end research pipeline from idea to results summary. TRIGGER when the user gives a research idea and expects working code at the end, or says "research and implement", "idea to code", "auto-research", "take this idea and build it", "implement this concept", or any phrasing that implies going from a rough idea all the way to code changes without manual steps in between.
-argument-hint: <rough idea or research direction>
+description: Research pipeline from idea to launched experiment. TRIGGER when the user gives a research idea and expects code + experiment, or says "research and implement", "idea to code", "auto-research", "take this idea and build it", "implement this concept", or any phrasing that implies going from a rough idea to code changes. This skill launches the experiment and returns — use /check-experiments to see results.
+argument-hint: <rough idea or research direction> [--auto]
 disable-model-invocation: false
 allowed-tools: Bash(python:*), Bash(cat:*), Bash(test:*), Bash(bash:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Read, Grep, WebFetch, WebSearch, Agent
 ---
 
-# Auto-Research: Idea → Code → Results
+# Auto-Research: Idea → Code → Launch
 
-You are an autonomous research orchestrator. The user gives you ONE rough idea. You deliver a **results summary** — hypothesis, code changes, experiment metrics, and comparison to baseline.
+You are an autonomous research orchestrator. The user gives you ONE rough idea. You implement it and **launch the experiment**, then return control so the user can start another iteration concurrently.
 
-Pipeline: **fetch papers → select approach → implement code → commit → run experiment → analyze → present summary**
+Pipeline: **fetch papers → select approach → implement code → commit → launch experiment → return**
+
+Use `/check-experiments` to collect results after experiments finish.
 
 ## Architecture — What runs where
 
@@ -21,8 +23,7 @@ Pipeline: **fetch papers → select approach → implement code → commit → r
 | Approach selection | You (orchestrator) | Judgment call — pick the best idea |
 | Git setup | Python scripts | `git_ops.py`, `state.py` — pure CLI |
 | Code implementation | Agent subagent | Agent tool reads code, makes edits |
-| Experiment | Shell | `run_and_wait.sh` + polling |
-| Analysis & summary | You (orchestrator) | Read results, compare to baseline, present |
+| Launch experiment | Shell | `run_and_wait.sh` in background |
 
 **NEVER call `code_implementation.py` or `literature_search.py`** — they are archived.
 
@@ -134,6 +135,24 @@ Tell the user (2-3 lines): which approach and why.
 
 **If no ideas.json** (Agent or fetch failed): formulate an instruction directly from the user's raw `IDEA`.
 
+### 2c: Ask for confirmation (unless `--auto`)
+
+If `$ARGUMENTS` contains `--auto`, skip this step and proceed directly.
+
+Otherwise, present the selected approach to the user and ask:
+
+> **Selected approach:** <TITLE>
+> **Hypothesis:** <HYPOTHESIS>
+> **What will change:** <CHANGE_DESC>
+>
+> Proceed with implementation? (Yes / Modify / Skip)
+
+- **Yes** → continue to Step 3
+- **Modify** → user gives feedback, reformulate INSTRUCTION, then continue
+- **Skip** → stop here, do not implement
+
+**Wait for user response before continuing.**
+
 ---
 
 ## Step 3: Git Setup + Register Iteration
@@ -218,7 +237,7 @@ Working directory: /data/humanBodyProject/new_proj/research_agent
 
 ---
 
-## Step 6: Discover Experiment Script
+## Step 6: Discover Experiment Script + Launch
 
 Find the experiment/training script to run. Check in order:
 
@@ -227,143 +246,40 @@ Find the experiment/training script to run. Check in order:
 3. **File search** — look for `train*.sh`, `train*.py`, `run*.sh`, `experiment*.sh`, `scripts/` directory in the project.
 4. **If not found** — ask the user: "What script should I run for the experiment? (e.g., `bash scripts/train.sh`)"
 
-Also determine the **checkpoint directory** for this iteration:
-- Convention: `checkpoints/iter_<NEXT_ITER>` or follow the pattern from previous iterations.
-- Each iteration MUST have a unique checkpoint directory.
+Determine a unique **checkpoint directory** (e.g., `checkpoints/iter_<NEXT_ITER>`).
 
-Record: `EXP_SCRIPT`, `CHECKPOINT_DIR`.
+### Launch the experiment (non-blocking):
 
----
-
-## Step 7: Run Experiment
-
-1. Mark iteration as running:
-   ```bash
-   python -m research_agent.state launch-iteration \
-     --id <NEXT_ITER> \
-     --checkpoint "<CHECKPOINT_DIR>"
-   ```
-
-2. Launch the experiment in background:
-   ```bash
-   bash research_agent/run_and_wait.sh <EXP_SCRIPT> <CHECKPOINT_DIR>
-   ```
-   Run this with `run_in_background: true` so it doesn't block.
-
-3. Tell the user: "Experiment launched. Training in `<CHECKPOINT_DIR>`. I'll poll for completion."
-
-4. Poll for completion (check every 60 seconds, up to a reasonable timeout):
-   ```bash
-   test -f <CHECKPOINT_DIR>/.done && cat <CHECKPOINT_DIR>/.done || echo RUNNING
-   ```
-
-   While polling, give periodic updates: "Still training... (Xm elapsed)"
-
----
-
-## Step 8: Analyze Results
-
-Once `.done` exists:
-
-1. Read the exit code from `.done`:
-   ```bash
-   cat <CHECKPOINT_DIR>/.done
-   ```
-
-2. **If EXIT_CODE != 0** (experiment failed):
-   ```bash
-   python -m research_agent.state fail-iteration \
-     --id <NEXT_ITER> \
-     --feedback "<error description from training.log tail>"
-   ```
-   Read `tail -50 <CHECKPOINT_DIR>/training.log` to understand what went wrong.
-   Skip to Step 10 with a failure summary.
-
-3. **If EXIT_CODE == 0** (experiment succeeded):
-   - Read experiment output/logs to extract metrics. Look for:
-     - JSON result files in `<CHECKPOINT_DIR>/`
-     - Metric values in `<CHECKPOINT_DIR>/training.log` (tail)
-     - Eval result files in the project
-   - Extract the primary metric value (`METRIC_VALUE`) and any secondary metrics.
-
-4. Record the result:
-   ```bash
-   python -m research_agent.state complete-iteration \
-     --id <NEXT_ITER> \
-     --metric-name <PRIMARY_METRIC> \
-     --metric-value <METRIC_VALUE> \
-     --feedback "<brief observation about the result>"
-   ```
-
----
-
-## Step 9: Commit Results + Merge
-
-1. Commit results:
-   ```bash
-   python -m research_agent.git_ops commit-results \
-     --iteration <NEXT_ITER> \
-     --state state.json
-   ```
-
-2. Push:
-   ```bash
-   python -m research_agent.git_ops push
-   ```
-
-3. Check if this is a new best. Read state:
-   ```bash
-   python -m research_agent.state read --field best
-   ```
-   If this iteration is the new best:
-   ```bash
-   python -m research_agent.git_ops merge-best --state state.json
-   python -m research_agent.git_ops push
-   ```
-
----
-
-## Step 10: Present Results Summary
-
-### 10a: This iteration's result
-
-On success:
+```bash
+python -m research_agent.state launch-iteration \
+  --id <NEXT_ITER> \
+  --checkpoint "<CHECKPOINT_DIR>"
 ```
-## Iteration <N> Result
+
+Launch in background using `run_in_background: true`:
+```bash
+bash research_agent/run_and_wait.sh <EXP_SCRIPT> <CHECKPOINT_DIR>
+```
+
+**Do NOT poll. Return control to the user immediately.**
+
+---
+
+## Step 7: Present Launch Summary
+
+Tell the user:
+
+```
+## Iteration <N> — Launched
 
 **Idea:** <SELECTED_IDEA_TITLE>
 **Hypothesis:** <HYPOTHESIS>
 **Changes:** <CHANGE_DESC> (files: <FILES>)
-**Result:** <PRIMARY_METRIC>: <VALUE> (baseline: <BASELINE>, delta: <DELTA>)
-**Verdict:** NEW_BEST / IMPROVED / NO_IMPROVEMENT / REGRESSED
+**Experiment:** running in `<CHECKPOINT_DIR>`
+
+Run `/check-experiments` to see results when training finishes.
+You can start another `/auto-research <new idea>` now — it will run as iteration <N+1> concurrently.
 ```
-
-On failure:
-```
-## Iteration <N> — FAILED
-
-**Idea:** <SELECTED_IDEA_TITLE>
-**Error:** <what went wrong>
-**Suggestion:** <how to fix or what to try instead>
-```
-
-### 10b: Full research history
-
-Always show the full history of ALL iterations so the user can see overall progress:
-
-```bash
-python -m research_agent.state report
-```
-
-This outputs a markdown table with every iteration: hypothesis, change, metric value, and feedback. Present it directly to the user.
-
-### 10c: Suggest next direction
-
-Based on the full history, suggest what to try next:
-- **Improved?** → variant of same approach, or combine with another winner
-- **Regressed?** → revert direction, try something orthogonal
-- **Plateaued (3+ iters)?** → suggest fresh literature search
-- **Goal reached?** → congratulate, suggest refinement or stopping
 
 ---
 
@@ -388,7 +304,7 @@ Implementation always goes through the Agent tool. Only the quality of paper con
 - ONE change per invocation.
 - Run steps sequentially.
 - Keep the user informed with brief status updates at each major step.
-- ALWAYS commit code BEFORE running experiments.
+- ALWAYS commit code BEFORE launching experiments.
 - ALWAYS push after commits.
 - Each iteration gets a UNIQUE checkpoint directory — never reuse.
-- The final output MUST be a results summary, not just a diff.
+- After launching the experiment, RETURN IMMEDIATELY. Do NOT poll for completion.

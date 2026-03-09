@@ -113,14 +113,28 @@ cd /path/to/your/project && claude
 
 ---
 
-## Other Skills
+## Skills
 
 | Command | Purpose |
 |---------|---------|
-| `/auto-research <idea>` | Full cycle: idea → papers → code → experiment → results |
+| `/auto-research <idea>` | Idea → papers → code → launch experiment (non-blocking) |
+| `/auto-research <idea> --auto` | Same but skips confirmation — fully autonomous |
+| `/check-experiments` | Check running experiments, collect results, present summary |
 | `/find-papers <topic>` | Search literature, generate research ideas |
-| `/implement <instruction>` | Implement a specific change + run experiment |
+| `/implement <instruction>` | Implement a specific change + launch experiment |
 | `/combine-findings <input>` | Integrate a paper, idea, or literature into current work |
+
+### Concurrent iterations
+
+`/auto-research` launches the experiment and returns immediately. Start multiple iterations in parallel:
+
+```
+/auto-research add attention gates to decoder        → launches iter 1
+/auto-research increase batch size to 4              → launches iter 2
+/auto-research try cosine annealing schedule         → launches iter 3
+
+/check-experiments                                   → collects all finished results
+```
 
 See [docs/skills.md](docs/skills.md) for details.
 

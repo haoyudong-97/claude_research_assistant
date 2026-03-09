@@ -1,14 +1,14 @@
 ---
 name: implement
-description: Implement a code change and run the experiment. TRIGGER when the user asks to implement something, make a code change, try an idea in code, apply a technique, modify the model/config, or says things like "implement X", "try X in code", "change Y to Z", "apply this paper's approach". Do NOT trigger for pure discussion or analysis — only when actual code changes are requested.
+description: Implement a code change and launch the experiment. TRIGGER when the user asks to implement something, make a code change, try an idea in code, apply a technique, modify the model/config, or says things like "implement X", "try X in code", "change Y to Z", "apply this paper's approach". Do NOT trigger for pure discussion or analysis — only when actual code changes are requested.
 argument-hint: <instruction or description of what to implement> [--papers path] [--files file1 file2]
 disable-model-invocation: false
 allowed-tools: Bash(python:*), Bash(cat:*), Bash(test:*), Bash(bash:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Read, Grep, Agent
 ---
 
-# Implement Code Change → Run → Results
+# Implement Code Change → Launch Experiment
 
-Delegate a code change to an **Agent subagent**, run the experiment, and present results. You are the orchestrator — NEVER edit project code directly.
+Delegate a code change to an **Agent subagent**, launch the experiment, and return. Use `/check-experiments` to collect results. You are the orchestrator — NEVER edit project code directly.
 
 ## Step 0: Read current state
 
@@ -65,7 +65,7 @@ Launch an **Agent** subagent with a detailed prompt including:
    python -m research_agent.git_ops push
    ```
 
-## Step 5: Discover Experiment Script
+## Step 5: Discover Experiment Script + Launch
 
 Find the experiment/training script. Check in order:
 1. `progress.md` — look for script path or "How to run" section.
@@ -75,78 +75,37 @@ Find the experiment/training script. Check in order:
 
 Determine a unique `CHECKPOINT_DIR` for this iteration (e.g., `checkpoints/iter_<N>`).
 
-## Step 6: Run Experiment
+### Launch (non-blocking):
 
 ```bash
 python -m research_agent.state launch-iteration --id <N> --checkpoint "<CHECKPOINT_DIR>"
 ```
 
-Launch in background:
+Launch in background using `run_in_background: true`:
 ```bash
 bash research_agent/run_and_wait.sh <EXP_SCRIPT> <CHECKPOINT_DIR>
 ```
 
-Poll for completion:
-```bash
-test -f <CHECKPOINT_DIR>/.done && cat <CHECKPOINT_DIR>/.done || echo RUNNING
+**Do NOT poll. Return control to the user immediately.**
+
+## Step 6: Present Launch Summary
+
 ```
+## Iteration <N> — Launched
 
-## Step 7: Analyze + Record Results
+**Hypothesis:** <HYPOTHESIS>
+**Changes:** <CHANGE_DESC> (files: <FILES>)
+**Experiment:** running in `<CHECKPOINT_DIR>`
 
-**On success (EXIT_CODE=0):**
-- Extract metrics from checkpoint dir / training log.
-- Record:
-  ```bash
-  python -m research_agent.state complete-iteration --id <N> \
-    --metric-name <PRIMARY_METRIC> --metric-value <VALUE> \
-    --feedback "<observation>"
-  ```
-
-**On failure (EXIT_CODE!=0):**
-- Read `tail -50 <CHECKPOINT_DIR>/training.log` for error.
-- Record:
-  ```bash
-  python -m research_agent.state fail-iteration --id <N> --feedback "<error>"
-  ```
-
-## Step 8: Commit Results + Merge
-
-```bash
-python -m research_agent.git_ops commit-results --iteration <N> --state state.json
-python -m research_agent.git_ops push
+Run `/check-experiments` to see results when training finishes.
 ```
-
-If new best:
-```bash
-python -m research_agent.git_ops merge-best --state state.json
-python -m research_agent.git_ops push
-```
-
-## Step 9: Present Results Summary
-
-### This iteration:
-- **Hypothesis**: what you expected
-- **Changes**: files modified + summary
-- **Results**: primary metric value, delta vs baseline, delta vs previous best
-- **Verdict**: NEW_BEST / IMPROVED / NO_IMPROVEMENT / REGRESSED / FAILED
-
-### Full research history:
-```bash
-python -m research_agent.state report
-```
-Present the full report to the user — shows all iterations with metrics in a table.
-
-### Suggest next direction:
-- **Improved?** → variant of same approach, or combine with another winner
-- **Regressed?** → revert direction, try something orthogonal
-- **Plateaued (3+ iters)?** → suggest fresh literature search
-- **Goal reached?** → congratulate, suggest refinement or stopping
 
 ## Notes
 
 - NEVER implement code yourself. ALWAYS use the Agent tool.
 - NEVER call `code_implementation.py` — it is archived.
 - ONE change per invocation.
-- ALWAYS commit code BEFORE running experiments.
+- ALWAYS commit code BEFORE launching experiments.
 - Each iteration gets a UNIQUE checkpoint directory.
-- The final output MUST be a results summary, not just a diff.
+- After launching, RETURN IMMEDIATELY. Do NOT poll for completion.
+- Use `/check-experiments` to collect results.
