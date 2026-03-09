@@ -10,35 +10,24 @@ A project-agnostic autonomous research loop for Claude Code. Give one idea, get 
 /auto-research <your idea here>
 ```
 
-Examples of what you can give as input:
+You can start from different levels of specificity:
 
 ```bash
-# A rough technique idea
-/auto-research add residual attention gates to the decoder skip connections
+# Just a direction — agent finds papers and decides the approach
+/auto-research improve boundary segmentation accuracy
 
-# A specific parameter change
-/auto-research increase learning rate warmup from 5 to 20 epochs
+# A rough idea — agent searches for supporting papers, then implements
+/auto-research try attention gates in the decoder skip connections
 
-# A concept from a paper you read
-/auto-research use boundary-aware loss from nnUNet v2 to weight hard regions
+# A specific paper — agent reads it and implements the key technique
+/combine-findings https://arxiv.org/abs/2401.12345
 
-# A high-level direction
-/auto-research improve model generalization across different hospital datasets
+# An exact change — agent implements directly, no paper search needed
+/implement increase spd_rank from 4 to 8
 
-# A combination of previous findings
-/auto-research combine the attention gates from iter 1 with the larger batch size from iter 2
-
-# An architecture change
-/auto-research replace the standard convolutions with depthwise separable convolutions
-
-# A training strategy
-/auto-research add deep supervision at each decoder level with exponential weight decay
-
-# A data augmentation idea
-/auto-research apply test-time augmentation with flips and rotations during inference
+# Explore what's new — agent fetches recent papers and proposes ideas
+/find-papers medical image segmentation transformers
 ```
-
-The input can be anything from a vague direction to a specific code change — the agent adapts its paper search and implementation accordingly.
 
 ---
 
