@@ -1,2 +1,6 @@
 __pycache__/
 workspace/
+results/
+state.json
+progress.md
+checkpoints/
