@@ -362,6 +362,10 @@ def cmd_read(args) -> None:
         print('{"error": "No state file found. Run init first."}')
         sys.exit(1)
     if args.field:
+        # Virtual field: next_id returns the next iteration number
+        if args.field == "next_id":
+            print(len(state.get("iterations", [])) + 1)
+            return
         val = state.get(args.field)
         if val is None:
             print(f'{{"error": "Field \'{args.field}\' not found"}}')

@@ -42,12 +42,18 @@ test -f state.json && python -m research_agent.state read || echo "NO_STATE"
 test -f progress.md && head -30 progress.md || echo "NO_PROGRESS"
 ```
 
-Record: `HAS_STATE`, `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `NEXT_ITER`, `PRIMARY_METRIC`.
+Record from the state output: `HAS_STATE`, `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `PRIMARY_METRIC`.
 
 If no state exists, initialize:
 ```bash
 python -m research_agent.state init --goal "$ARGUMENTS" --metric "improvement"
 ```
+
+Get the next iteration number:
+```bash
+python -m research_agent.state read --field next_id
+```
+This returns a single integer (e.g., `4`). Store it as `NEXT_ITER`. All subsequent commands use this number.
 
 Extract `IDEA` from `$ARGUMENTS`.
 

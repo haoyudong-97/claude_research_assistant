@@ -21,8 +21,13 @@ cd /data/humanBodyProject/new_proj/research_agent
    python -m research_agent.state read
    ```
 2. If `progress.md` exists, read the user section for notes/constraints.
+3. Get the next iteration number:
+   ```bash
+   python -m research_agent.state read --field next_id
+   ```
+   Store as `NEXT_ITER` (a single integer, e.g., `4`). All subsequent commands use this number.
 
-Record: `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `NEXT_ITER`, `PRIMARY_METRIC`.
+Record from state output: `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `PRIMARY_METRIC`.
 
 ## Step 1: Parse the input
 
