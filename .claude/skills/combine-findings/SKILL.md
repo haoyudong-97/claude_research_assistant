@@ -13,7 +13,7 @@ Integrate new input (a paper, an idea, or fresh literature) with the current res
 ## Step 0: Read current state
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent
+cd "$(git rev-parse --show-toplevel)"
 python -m research_agent.state read
 ```
 

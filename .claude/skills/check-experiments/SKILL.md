@@ -15,7 +15,7 @@ Sweep all running iterations — complete any that finished, report status of th
 ## Step 1: Read State
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent
+cd "$(git rev-parse --show-toplevel)"
 python -m research_agent.state read
 ```
 
@@ -25,10 +25,27 @@ If no iterations are running, just show the full report (Step 5) and exit.
 
 ---
 
+## Step 1.5: Collect Remote Results (if applicable)
+
+If any experiments were deployed remotely, pull results first:
+
+```bash
+python -m research_agent.deploy collect <CHECKPOINT> --host <HOST>
+```
+
+This downloads `.done`, `.status`, `training.log`, and result files from the remote server.
+
+---
+
 ## Step 2: Check Each Running Iteration
 
 For each running iteration, check if it's done:
 
+```bash
+python -m research_agent.deploy status --output-dir <CHECKPOINT>
+```
+
+Or the simple local check:
 ```bash
 test -f <CHECKPOINT>/.done && cat <CHECKPOINT>/.done || echo RUNNING
 ```

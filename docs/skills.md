@@ -5,9 +5,9 @@
 The main command. Takes a rough idea and delivers a results summary.
 
 ```
-/auto-research use boundary-aware loss to improve segmentation edges
-/auto-research try token-wise FiLM conditioning for adapter layers
-/auto-research explore attention gating for skip connections
+/auto-research try cosine annealing with warm restarts
+/auto-research add residual attention to the decoder
+/auto-research explore label smoothing with curriculum
 ```
 
 **Full pipeline:**
@@ -16,13 +16,14 @@ The main command. Takes a rough idea and delivers a results summary.
 |------|-------------|-----|
 | 0. Load context | Read `state.json` + `progress.md` | `python -m research_agent.state read` |
 | 1. Fetch papers | Search arXiv + Semantic Scholar | `idea_discovery.py --fetch-only` (pure Python) |
-| 2a. Generate ideas | Digest papers, propose ideas | Agent subagent → `results/ideas.json` |
-| 2b. Select approach | Pick best idea | Orchestrator judgment |
+| 2a. Generate ideas | Digest papers, propose ideas + pilot designs | Agent subagent → `results/ideas.json` |
+| 2b. Select approach | Pick best idea, present pilot option | Orchestrator judgment + user confirmation |
 | 3. Git setup | Create branch, register iteration | `git_ops branch-start` + `state start-iteration` |
 | 4. Implement code | Read code, make edits | Agent subagent → `results/impl_summary.json` |
 | 5. Review + commit | `git diff`, commit, push | `git_ops commit-code` + `git_ops push` |
 | 6. Discover script | Find experiment/training script | Check progress.md, state, or ask user |
-| 7. Run experiment | Launch training, poll | `state launch-iteration` + `run_and_wait.sh` |
+| 6.5. GPU preflight | Check GPU availability | `deploy preflight` (local or remote) |
+| 7. Run experiment | Launch training | `state launch-iteration` + `deploy launch` (local/remote) |
 | 8. Analyze results | Extract metrics from output | Read checkpoint dir / training log |
 | 9. Record results | Update state + progress.md | `state complete-iteration` or `fail-iteration` |
 | 10. Commit + merge | Commit results, merge if best | `git_ops commit-results` + `merge-best` |
@@ -35,7 +36,7 @@ The main command. Takes a rough idea and delivers a results summary.
 Search for papers and generate research ideas.
 
 ```
-/find-papers medical image segmentation transformers
+/find-papers vision transformer efficiency
 /find-papers attention mechanisms --days 7
 /find-papers PEFT adapters --categories machine-learning --fetch-only
 ```
@@ -47,7 +48,7 @@ Search for papers and generate research ideas.
 Implement a specific code change and run the experiment.
 
 ```
-/implement increase spd_rank from 4 to 8
+/implement increase learning rate from 1e-4 to 3e-4
 /implement add dropout after the adapter layer
 /implement apply idea 3 from the last paper search
 ```

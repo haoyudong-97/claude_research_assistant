@@ -27,7 +27,7 @@ Infer arXiv categories from the topic if not specified:
 ## Step 1: Fetch papers (pure Python — no Claude worker needed)
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent && \
+cd "$(git rev-parse --show-toplevel)" && \
 python research_agent/idea_discovery.py \
   --categories <CATEGORIES> \
   --days <DAYS> \
@@ -40,7 +40,7 @@ python research_agent/idea_discovery.py \
 
 **Fallback** if idea_discovery.py fails:
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent && \
+cd "$(git rev-parse --show-toplevel)" && \
 python research_agent/search_papers.py "<TOPIC>" results/search_fallback.json --limit 15
 ```
 
@@ -56,7 +56,7 @@ If `--fetch-only` was specified, skip this step.
 Otherwise, use the **Agent tool** to spawn a subagent that digests the papers and proposes ideas:
 
 ```
-Read the file results/recent_papers.json in /data/humanBodyProject/new_proj/research_agent.
+Read the file results/recent_papers.json in the project root.
 Also read state.json if it exists (for project context).
 
 The user's research topic is: <TOPIC>

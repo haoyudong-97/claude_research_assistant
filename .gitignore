@@ -1,6 +1,7 @@
 __pycache__/
-workspace/
-results/
+workspace/*
+!workspace/.gitkeep
+results/*
+!results/.gitkeep
 state.json
-progress.md
 checkpoints/

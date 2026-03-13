@@ -13,7 +13,7 @@ Delegate a code change to an **Agent subagent**, launch the experiment, and retu
 ## Step 0: Read current state
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent
+cd "$(git rev-parse --show-toplevel)"
 ```
 
 1. If `state.json` exists:
@@ -75,6 +75,12 @@ Find the experiment/training script. Check in order:
 
 Determine a unique `CHECKPOINT_DIR` for this iteration (e.g., `checkpoints/iter_<N>`).
 
+### Pre-flight GPU check:
+
+```bash
+python -m research_agent.deploy preflight
+```
+
 ### Launch (non-blocking):
 
 ```bash
@@ -83,8 +89,10 @@ python -m research_agent.state launch-iteration --id <N> --checkpoint "<CHECKPOI
 
 Launch in background using `run_in_background: true`:
 ```bash
-bash research_agent/run_and_wait.sh <EXP_SCRIPT> <CHECKPOINT_DIR>
+python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR>
 ```
+
+For remote deployment: `python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR> --host <HOST>`
 
 **Do NOT poll. Return control to the user immediately.**
 

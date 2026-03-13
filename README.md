@@ -14,7 +14,7 @@ You can start from different levels of specificity:
 
 ```bash
 # Just a direction — agent finds papers and decides the approach
-/auto-research improve boundary segmentation accuracy
+/auto-research improve model generalization
 
 # A rough idea — agent searches for supporting papers, then implements
 /auto-research try attention gates in the decoder skip connections
@@ -23,10 +23,10 @@ You can start from different levels of specificity:
 /combine-findings https://arxiv.org/abs/2401.12345
 
 # An exact change — agent implements directly, no paper search needed
-/implement increase spd_rank from 4 to 8
+/implement increase learning rate from 1e-4 to 3e-4
 
 # Explore what's new — agent fetches recent papers and proposes ideas
-/find-papers medical image segmentation transformers
+/find-papers vision transformer efficiency
 ```
 
 ---
@@ -53,12 +53,12 @@ See [docs/pipeline.md](docs/pipeline.md) for the detailed 12-step breakdown.
 Call `/auto-research` repeatedly. State accumulates — each call sees the full history and builds on it:
 
 ```
-/auto-research add residual attention to nnunet decoder
+/auto-research add residual attention to decoder
 ```
 ```
-Iteration 1: test_3d_dice = 0.88 (baseline: 0.85, +0.030) — NEW BEST
+Iteration 1: val_accuracy = 0.88 (baseline: 0.85, +0.030) — NEW BEST
 
-| # | Change                            | test_3d_dice | vs baseline |
+| # | Change                            | val_accuracy | vs baseline |
 |---|-----------------------------------|--------------|-------------|
 | 1 | add residual attention to decoder | 0.88         | +0.030      |
 ```
@@ -67,9 +67,9 @@ Iteration 1: test_3d_dice = 0.88 (baseline: 0.85, +0.030) — NEW BEST
 /auto-research increase batch size from 2 to 4
 ```
 ```
-Iteration 2: test_3d_dice = 0.89 (baseline: 0.85, +0.040) — NEW BEST
+Iteration 2: val_accuracy = 0.89 (baseline: 0.85, +0.040) — NEW BEST
 
-| # | Change                            | test_3d_dice | vs baseline |
+| # | Change                            | val_accuracy | vs baseline |
 |---|-----------------------------------|--------------|-------------|
 | 1 | add residual attention to decoder | 0.88         | +0.030      |
 | 2 | increase batch size from 2 to 4   | 0.89         | +0.040      |
@@ -79,9 +79,9 @@ Iteration 2: test_3d_dice = 0.89 (baseline: 0.85, +0.040) — NEW BEST
 /auto-research combine attention with deeper supervision
 ```
 ```
-Iteration 3: test_3d_dice = 0.87 (baseline: 0.85, +0.020) — REGRESSED (best: iter 2)
+Iteration 3: val_accuracy = 0.87 (baseline: 0.85, +0.020) — REGRESSED (best: iter 2)
 
-| # | Change                             | test_3d_dice | vs baseline |
+| # | Change                             | val_accuracy | vs baseline |
 |---|------------------------------------|--------------|-------------|
 | 1 | add residual attention to decoder  | 0.88         | +0.030      |
 | 2 | increase batch size from 2 to 4    | 0.89         | +0.040      |
@@ -93,22 +93,88 @@ Iteration 3: test_3d_dice = 0.87 (baseline: 0.85, +0.020) — REGRESSED (best: i
 ## Installation
 
 ```bash
-# 1. Copy into your project
+# 1. Copy the agent + skills into your project
 cp -r research_agent/ /path/to/your/project/
 cp -r .claude/skills/ /path/to/your/project/.claude/skills/
 
-# 2. Append protocol to CLAUDE.md
+# 2. Append the orchestration protocol to your project's CLAUDE.md
 cat research_agent/protocol.md >> /path/to/your/project/CLAUDE.md
 
-# 3. (Optional) Create progress.md with your research goal
-cat > progress.md << 'EOF'
+# 3. Create progress.md with your research goal
+cat > /path/to/your/project/progress.md << 'EOF'
 # Research Goal
-Improve heart segmentation 3D Dice above 0.92.
-EOF
+Improve val_accuracy above 0.92.
 
-# 4. Start
+## How to run
+Experiment script: scripts/train.sh
+EOF
+```
+
+The `## How to run` section tells the agent which script to launch for experiments. Without it, the agent will search for `train*.sh` / `train*.py` or ask you.
+
+### Remote GPU deployment (optional)
+
+If your experiments run on a remote GPU server, set these env vars:
+
+```bash
+export DEPLOY_HOST=my-gpu-server      # SSH host (must have key-based auth)
+export DEPLOY_REMOTE_DIR=~/research   # Where code gets synced on remote
+```
+
+Or pass `--host` to deploy commands directly. See [docs/cli-reference.md](docs/cli-reference.md) for all env vars.
+
+### Start
+
+```bash
 cd /path/to/your/project && claude
 # Then type: /auto-research <your idea>
+```
+
+---
+
+## Usage
+
+The agent presents each idea with a **pilot design** (a cheap signal test) and asks:
+
+> Proceed with: **Full experiment** / **Pilot first** / Modify / Skip
+
+"Pilot first" runs a quick check before committing full GPU-hours.
+
+### Slash commands
+
+```bash
+# Full pipeline: papers → idea (with pilot design) → implement → launch
+/auto-research try attention gates in the decoder
+
+# Skip paper search, just implement and run
+/implement increase learning rate from 1e-4 to 3e-4
+
+# Search literature, browse ideas
+/find-papers vision transformer efficiency
+
+# Check if experiments finished
+/check-experiments
+
+# Integrate a specific paper
+/combine-findings https://arxiv.org/abs/2401.12345
+```
+
+### GPU commands (standalone)
+
+These work directly in your Claude session or terminal:
+
+```bash
+# Check what GPUs are available
+python -m research_agent.deploy preflight
+
+# Launch an experiment manually
+python -m research_agent.deploy launch scripts/train.sh checkpoints/exp1
+
+# Check experiment status
+python -m research_agent.deploy status
+
+# Collect results from remote
+python -m research_agent.deploy collect checkpoints/exp1 --host gpu-server
 ```
 
 ---

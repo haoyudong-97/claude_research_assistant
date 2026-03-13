@@ -62,16 +62,30 @@ Finds the training script to run by checking (in order):
 3. File search — `train*.sh`, `train*.py`, `scripts/` directory
 4. Ask the user if not found
 
+## Step 6.5: GPU Pre-flight Check
+
+```bash
+python -m research_agent.deploy preflight                    # local
+python -m research_agent.deploy preflight --host gpu-server  # remote
+```
+
+Checks GPU availability before launching. Reports free memory per GPU. Warns if no GPU has enough free memory.
+
 ## Step 7: Run Experiment
 
-Marks iteration as running and launches the experiment in background:
+Marks iteration as running and launches the experiment:
 
 ```bash
 python -m research_agent.state launch-iteration --id <N> --checkpoint "checkpoints/iter_<N>"
-bash research_agent/run_and_wait.sh <script> checkpoints/iter_<N>
+python -m research_agent.deploy launch <script> checkpoints/iter_<N>
 ```
 
-Polls `checkpoints/iter_<N>/.done` for completion. State moves to `running` status.
+For remote GPU servers:
+```bash
+python -m research_agent.deploy launch <script> checkpoints/iter_<N> --host gpu-server
+```
+
+This auto-selects the GPU with most free memory, syncs code if remote, and launches in a screen session. Polls via `python -m research_agent.deploy status`. State moves to `running` status.
 
 ## Step 8: Analyze Results
 
@@ -119,15 +133,15 @@ Changes: <description>
   Files modified: model.py, config.py
 
 Results:
-  test_3d_dice: 0.918 (baseline: 0.905, delta: +0.013)
+  <primary_metric>: 0.918 (baseline: 0.905, delta: +0.013)
 
 Verdict: NEW BEST
 
 ## All Iterations
-| # | Change | test_3d_dice | vs baseline |
-|---|--------|--------------|-------------|
-| 1 | ...    | 0.908        | +0.003      |
-| 2 | ...    | 0.918        | +0.013      |
+| # | Change | <primary_metric> | vs baseline |
+|---|--------|------------------|-------------|
+| 1 | ...    | 0.908            | +0.003      |
+| 2 | ...    | 0.918            | +0.013      |
 
-Suggestion: Try combining this with token-wise adaptation
+Suggestion: Try combining this with <next idea>
 ```

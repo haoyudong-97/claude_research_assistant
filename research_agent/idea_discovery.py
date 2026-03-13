@@ -400,6 +400,10 @@ Based on the papers above and the user's research goal, produce:
    - What changes would be needed in code
    - Expected impact (why this could help the user's goal)
    - Estimated difficulty (low / medium / high)
+   - A pilot experiment design: the cheapest possible test to check if the idea
+     has signal before committing to a full run. Include what to run (e.g. fewer
+     epochs, smaller data subset), estimated GPU-hours, and a clear success
+     criterion (what result would confirm promise vs. discard).
 
 Return ONLY valid JSON with this structure. No markdown fences, no commentary.
 
@@ -417,7 +421,12 @@ Return ONLY valid JSON with this structure. No markdown fences, no commentary.
       "approach": "Concrete description of what to implement",
       "expected_impact": "Why this could improve the metric",
       "difficulty": "low|medium|high",
-      "relevant_papers": ["Paper Title 1", "Paper Title 2"]
+      "relevant_papers": ["Paper Title 1", "Paper Title 2"],
+      "pilot_design": {
+        "experiment": "Minimal test to check signal (e.g. train 5 epochs on 10% data)",
+        "gpu_hours": 0.5,
+        "success_criterion": "What result would confirm the idea has promise"
+      }
     }
   ]
 }

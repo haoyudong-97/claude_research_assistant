@@ -23,7 +23,8 @@ Use `/check-experiments` to collect results after experiments finish.
 | Approach selection | You (orchestrator) | Judgment call — pick the best idea |
 | Git setup | Python scripts | `git_ops.py`, `state.py` — pure CLI |
 | Code implementation | Agent subagent | Agent tool reads code, makes edits |
-| Launch experiment | Shell | `run_and_wait.sh` in background |
+| GPU preflight | Python script | `deploy.py preflight` — checks GPU availability |
+| Launch experiment | Python script | `deploy.py launch` — local or remote via SSH+screen |
 
 **NEVER call `code_implementation.py` or `literature_search.py`** — they are archived.
 
@@ -32,7 +33,7 @@ Use `/check-experiments` to collect results after experiments finish.
 ## Step 0: Load Context
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent
+cd "$(git rev-parse --show-toplevel)"
 ```
 
 ```bash
@@ -70,7 +71,7 @@ Infer `CATEGORIES`:
 ## Step 1: Fetch Papers (pure Python — always works)
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent && \
+cd "$(git rev-parse --show-toplevel)" && \
 python research_agent/idea_discovery.py \
   --categories <CATEGORIES> \
   --days 7 \
@@ -97,7 +98,7 @@ python research_agent/search_papers.py "<IDEA>" results/recent_papers.json --lim
 Launch an **Agent** (subagent_type: general-purpose) to digest the papers:
 
 ```
-Read the file results/recent_papers.json in /data/humanBodyProject/new_proj/research_agent.
+Read the file results/recent_papers.json in the project root.
 Also read state.json if it exists for project context.
 
 The user's research idea is: <IDEA>
@@ -106,12 +107,12 @@ From these papers:
 1. Identify the 3-5 most relevant trends/techniques.
 2. Propose 3-5 concrete research ideas aligned with the user's idea.
 
-For each idea include: title, hypothesis, approach (specific code changes), expected_impact, difficulty (low/medium/high), relevant_papers.
+For each idea include: title, hypothesis, approach (specific code changes), expected_impact, difficulty (low/medium/high), relevant_papers, and a pilot_design (minimal experiment to test signal before full commitment: what to run, estimated gpu_hours, and success_criterion).
 
 Write output to results/ideas.json as JSON:
 {
   "trend_digest": ["Trend 1: ...", ...],
-  "ideas": [{"id": 1, "title": "...", "hypothesis": "...", "approach": "...", "expected_impact": "...", "difficulty": "low", "relevant_papers": ["..."]}]
+  "ideas": [{"id": 1, "title": "...", "hypothesis": "...", "approach": "...", "expected_impact": "...", "difficulty": "low", "relevant_papers": ["..."], "pilot_design": {"experiment": "...", "gpu_hours": 0.5, "success_criterion": "..."}}]
 }
 
 This is a research-only task. Do NOT modify any project code. Only read files and write results/ideas.json.
@@ -144,10 +145,13 @@ Otherwise, present the selected approach to the user and ask:
 > **Selected approach:** <TITLE>
 > **Hypothesis:** <HYPOTHESIS>
 > **What will change:** <CHANGE_DESC>
+> **Pilot:** <PILOT_EXPERIMENT> (~<GPU_HOURS> GPU-hours)
+> **Pilot success criterion:** <SUCCESS_CRITERION>
 >
-> Proceed with implementation? (Yes / Modify / Skip)
+> Proceed with: Full experiment / Pilot first / Modify / Skip
 
-- **Yes** → continue to Step 3
+- **Full experiment** → continue to Step 3 with full experiment
+- **Pilot first** → continue to Step 3 but use the pilot_design parameters (fewer epochs, smaller data) for a quick signal check
 - **Modify** → user gives feedback, reformulate INSTRUCTION, then continue
 - **Skip** → stop here, do not implement
 
@@ -158,7 +162,7 @@ Otherwise, present the selected approach to the user and ask:
 ## Step 3: Git Setup + Register Iteration
 
 ```bash
-cd /data/humanBodyProject/new_proj/research_agent && \
+cd "$(git rev-parse --show-toplevel)" && \
 python -m research_agent.git_ops branch-start \
   --iteration <NEXT_ITER> \
   --change "<CHANGE_DESC>"
@@ -178,7 +182,7 @@ Launch an **Agent** (subagent_type: general-purpose) to implement the change:
 
 ```
 You are implementing a code change in the project.
-Working directory: /data/humanBodyProject/new_proj/research_agent
+Working directory: the project root (git repo root)
 
 ## Instruction
 <INSTRUCTION — detailed, specific implementation plan>
@@ -248,6 +252,14 @@ Find the experiment/training script to run. Check in order:
 
 Determine a unique **checkpoint directory** (e.g., `checkpoints/iter_<NEXT_ITER>`).
 
+### Pre-flight GPU check:
+
+```bash
+python -m research_agent.deploy preflight
+```
+
+If GPUs are available, proceed. If not, tell the user and ask whether to launch anyway or wait.
+
 ### Launch the experiment (non-blocking):
 
 ```bash
@@ -258,8 +270,15 @@ python -m research_agent.state launch-iteration \
 
 Launch in background using `run_in_background: true`:
 ```bash
-bash research_agent/run_and_wait.sh <EXP_SCRIPT> <CHECKPOINT_DIR>
+python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR>
 ```
+
+For remote GPU deployment, add `--host <HOST>`:
+```bash
+python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR> --host <HOST>
+```
+
+This auto-selects the GPU with most free memory, syncs code to remote, and launches in a screen session.
 
 **Do NOT poll. Return control to the user immediately.**
 

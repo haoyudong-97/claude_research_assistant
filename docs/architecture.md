@@ -31,7 +31,8 @@ Claude Code Session
 | `search_papers.py` | Fallback paper search via Semantic Scholar + arXiv APIs (no Claude needed) |
 | `state.py` | Persistent JSON state + auto-updates `progress.md` |
 | `git_ops.py` | Branch per iteration, structured commits, merge best to main |
-| `run_and_wait.sh` | Experiment runner with `.done` completion marker |
+| `deploy.py` | GPU-aware experiment deployment: preflight checks, local/remote launch, status, result collection |
+| `run_and_wait.sh` | Low-level experiment runner with `.done` completion marker (called by `deploy.py`) |
 | `protocol.md` | Research loop protocol (append to your project's CLAUDE.md) |
 | `archive/` | Deprecated scripts (`code_implementation.py`, `literature_search.py`) — kept for reference only |
 
@@ -52,7 +53,8 @@ your_project/
     ├── search_papers.py         # Fallback paper search
     ├── state.py                 # State management + progress.md auto-updates
     ├── git_ops.py               # Git branching, commits, merges per iteration
-    ├── run_and_wait.sh          # Experiment runner
+    ├── deploy.py                # GPU-aware deployment (local + remote)
+    ├── run_and_wait.sh          # Low-level experiment runner (used by deploy.py)
     ├── protocol.md              # Source protocol
     └── archive/                 # Deprecated (kept for reference)
         ├── code_implementation.py

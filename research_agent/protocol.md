@@ -27,9 +27,10 @@ tmux session "research"
 
 Delegation:
   - Paper fetching: pure Python (idea_discovery.py --fetch-only, search_papers.py)
-  - Idea generation: Agent subagent (reads fetched papers, proposes ideas)
+  - Idea generation: Agent subagent (reads fetched papers, proposes ideas with pilot designs)
   - Code implementation: Agent subagent (reads code, makes edits)
   - State/git: pure Python (state.py, git_ops.py)
+  - Experiment deployment: pure Python (deploy.py — GPU preflight, local/remote launch, status, collect)
 ```
 
 Agent subagents are spawned via the Agent tool and have full tool access. Pure Python scripts handle API calls that don't need Claude.
@@ -81,7 +82,7 @@ When the user asks to explore recent papers or wants fresh research ideas, use `
 ```markdown
 # Research Goal
 
-Improve heart segmentation 3D Dice above 0.92 using adapter architecture changes.
+Improve val_accuracy above 0.92 using architecture changes.
 
 ## Constraints
 - Keep parameter count under 1M
@@ -195,21 +196,33 @@ main                          ← always has the best-performing code
    python -m research_agent.git_ops push
    ```
 
-9. **Launch iteration** — mark as running and start the experiment:
+9. **Pre-flight GPU check** (optional but recommended):
+   ```
+   python -m research_agent.deploy preflight
+   python -m research_agent.deploy preflight --host <gpu-server>
+   ```
+
+10. **Launch iteration** — mark as running and start the experiment:
    ```
    python -m research_agent.state launch-iteration --id 3 --checkpoint "checkpoints/exp3"
-   bash research_agent/run_and_wait.sh <script> <checkpoint_dir>
+   python -m research_agent.deploy launch <script> <checkpoint_dir>
    ```
+   For remote GPU deployment:
+   ```
+   python -m research_agent.deploy launch <script> <checkpoint_dir> --host <gpu-server>
+   ```
+   This auto-selects the GPU with most free memory, syncs code to remote if needed, and launches in a screen session.
    The iteration moves to `running` status. `progress.md` now shows it as "training" in Active Experiments.
 
-10. **Poll** — check completion every ~10 minutes:
+11. **Poll** — check completion:
     ```
-    test -f <checkpoint_dir>/.done && cat <checkpoint_dir>/.done || echo RUNNING
+    python -m research_agent.deploy status --output-dir <checkpoint_dir>
     ```
+    Or for remote: `python -m research_agent.deploy status --output-dir <checkpoint_dir> --host <gpu-server>`
 
-11. **Analyze** — read results, compare with baseline and previous best.
+12. **Analyze** — read results, compare with baseline and previous best.
 
-12. **Complete (or fail) the iteration:**
+13. **Complete (or fail) the iteration:**
 
     On success:
     ```
@@ -227,24 +240,24 @@ main                          ← always has the best-performing code
 
     > **Shortcut:** For simple iterations without lifecycle tracking, `add-iteration` still works and atomically creates + completes an iteration in one step.
 
-13. **Commit results:**
+14. **Commit results:**
     ```
     python -m research_agent.git_ops commit-results --iteration 3 --state state.json
     python -m research_agent.git_ops push
     ```
 
-14. **If new best → merge to main** and push:
+15. **If new best → merge to main** and push:
     ```
     python -m research_agent.git_ops merge-best --state state.json
     python -m research_agent.git_ops push
     ```
 
-15. **Summarize** — present results and proposed next steps to user.
+16. **Summarize** — present results and proposed next steps to user.
 
-16. **Offer literature exploration** — at the end of every iteration, fetch today's arXiv titles (free, no Claude worker) and present them:
+17. **Offer literature exploration** — at the end of every iteration, fetch today's arXiv titles (free, no Claude worker) and present them:
 
     ```
-    python research_agent/idea_discovery.py --categories medical-imaging --days 1 --fetch-only
+    python research_agent/idea_discovery.py --categories <CATEGORIES> --days 1 --fetch-only
     ```
 
     Then show the user the paper titles from `results/recent_papers.json` and ask:
@@ -257,7 +270,7 @@ main                          ← always has the best-performing code
     - **User wants full digest** → run idea discovery WITHOUT `--fetch-only` to spawn the Claude worker and generate structured ideas.
     - **User declines** → proceed directly to the next iteration.
 
-17. **Next iteration decision:**
+18. **Next iteration decision:**
     - **Interactive mode:** Wait for user feedback before continuing.
     - **Autonomous mode:** Auto-decide the next step based on results:
       - **Improved?** → Build on it (vary the same knob, combine with another).

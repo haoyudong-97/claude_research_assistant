@@ -649,7 +649,7 @@ def main():
     p_init.add_argument("--goal", default=None, help="Research goal (or read from --progress)")
     p_init.add_argument("--progress", default=None, help="Path to user's progress.md with goal")
     p_init.add_argument("--project-dir", default=None, help="Project root (default: cwd)")
-    p_init.add_argument("--metric", default="test_3d_dice", help="Primary metric name")
+    p_init.add_argument("--metric", default=None, help="Primary metric name")
     p_init.set_defaults(func=cmd_init)
 
     # read
