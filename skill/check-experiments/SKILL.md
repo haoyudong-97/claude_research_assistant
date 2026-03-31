@@ -16,11 +16,11 @@ hooks:
           command: "python $HOME/.claude/skills/check-experiments/research_agent/hooks/track_state.py"
 ---
 
-# Check Experiments
+# Check Experiments: Collect Results & Iterate
 
-Sweep all running iterations — complete any that finished, report status of those still running, and present a full research summary.
+You are sweeping all running experiments — check which ones finished, collect their results, commit them, and present a full research summary with next-step recommendations.
 
-## Tool Discovery
+Your FIRST action must be to set up the Python tools:
 
 ```bash
 export PYTHONPATH="$HOME/.claude/skills/check-experiments:$PYTHONPATH"
@@ -28,88 +28,71 @@ export PYTHONPATH="$HOME/.claude/skills/check-experiments:$PYTHONPATH"
 
 ---
 
-## Step 1: Read State
+## Phase 1: Load State
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 python -m research_agent.state read
 ```
 
-Find all iterations with `"status": "running"`. For each, note its `id` and `checkpoint` path.
+Find all iterations with `"status": "running"`. Note each iteration's `id` and `checkpoint` path.
 
-If no iterations are running, just show the full report (Step 5) and exit.
+If no iterations are running, skip to Phase 4 and show the full report.
 
----
-
-## Step 1.5: Collect Remote Results (if applicable)
-
-If any experiments were deployed remotely, pull results first:
+If any experiments were deployed remotely, collect results first:
 
 ```bash
 python -m research_agent.deploy collect <CHECKPOINT> --host <HOST>
 ```
 
-This downloads `.done`, `.status`, `training.log`, and result files from the remote server.
-
 ---
 
-## Step 2: Check Each Running Iteration
+## Phase 2: Check Each Running Iteration
 
-For each running iteration, first validate the checkpoint directory exists:
+Process ALL running iterations in one sweep — do not stop after the first.
 
-```bash
-test -d <CHECKPOINT> || echo "LOST"
-```
+For each running iteration:
 
-If the checkpoint directory is missing, mark the iteration as LOST:
-```bash
-python -m research_agent.state fail-iteration --id <ID> \
-  --feedback "Checkpoint directory <CHECKPOINT> not found — marking as LOST"
-```
-
-If the checkpoint directory exists, check if it's done:
-
-```bash
-test -f <CHECKPOINT>/.done && cat <CHECKPOINT>/.done || echo RUNNING
-```
-
-### If still RUNNING:
-Note it and move on. Report it as still running in the summary.
-
-### If .done exists:
-
-1. Read the exit code:
+1. **Validate checkpoint exists:**
    ```bash
-   cat <CHECKPOINT>/.done
+   test -d <CHECKPOINT> && echo EXISTS || echo MISSING
+   ```
+   If MISSING, mark as lost and move on:
+   ```bash
+   python -m research_agent.state fail-iteration --id <ID> \
+     --feedback "Checkpoint directory not found — experiment lost"
    ```
 
-2. **EXIT_CODE != 0** (failed):
-   - Read the error:
-     ```bash
-     tail -50 <CHECKPOINT>/training.log
-     ```
-   - Record failure:
-     ```bash
-     python -m research_agent.state fail-iteration --id <ID> \
-       --feedback "<what went wrong and what to try differently>"
-     ```
+2. **Check completion:**
+   ```bash
+   test -f <CHECKPOINT>/.done && cat <CHECKPOINT>/.done || echo RUNNING
+   ```
+   If still RUNNING, note it and move to the next iteration.
 
-3. **EXIT_CODE == 0** (succeeded):
-   - Extract metrics from checkpoint dir / training log. Look for:
-     - JSON result files in `<CHECKPOINT>/`
-     - Metric values in the tail of `<CHECKPOINT>/training.log`
-     - Eval result files in the project
-   - Read the primary metric name from state (`primary_metric` field).
-   - Record success. The `--feedback` field is important — write 1-2 sentences about **what we learned** from this iteration (e.g., "Attention gates helped on small organs but hurt large ones. Consider organ-specific gating next."):
-     ```bash
-     python -m research_agent.state complete-iteration --id <ID> \
-       --metric-name <PRIMARY_METRIC> --metric-value <VALUE> \
-       --feedback "<what we learned from this iteration — insights, surprises, what to try next>"
-     ```
+3. **If done with exit code != 0** (failed):
+   Read the error log:
+   ```bash
+   tail -50 <CHECKPOINT>/training.log
+   ```
+   Record the failure — explain what went wrong and what to try differently:
+   ```bash
+   python -m research_agent.state fail-iteration --id <ID> \
+     --feedback "<what went wrong and what to try differently>"
+   ```
+
+4. **If done with exit code == 0** (succeeded):
+   Extract metrics from the checkpoint directory or training log. Look for JSON result files, metric values in the log tail, or eval files in the project.
+
+   Record success. The feedback is important — write 1-2 sentences about what you learned (e.g., "Attention gates helped small organs +0.05 but hurt liver -0.01. Consider organ-specific gating."):
+   ```bash
+   python -m research_agent.state complete-iteration --id <ID> \
+     --metric-name <PRIMARY_METRIC> --metric-value <VALUE> \
+     --feedback "<what we learned — insights, surprises, what to try next>"
+   ```
 
 ---
 
-## Step 3: Commit Results
+## Phase 3: Commit & Merge
 
 For each iteration that just completed or failed, switch to its branch and commit:
 
@@ -119,73 +102,67 @@ python -m research_agent.git_ops commit-results --iteration <ID> --state state.j
 python -m research_agent.git_ops push
 ```
 
----
-
-## Step 4: Merge Best
-
-Check if any newly completed iteration is the new best:
+After committing all results, check if any newly completed iteration is the new best:
 
 ```bash
 python -m research_agent.state read --field best
 ```
 
-If the best iteration just completed in this sweep:
+If the best iteration just completed in this sweep, merge it to main:
+
 ```bash
 python -m research_agent.git_ops merge-best --state state.json
 python -m research_agent.git_ops push
-```
-
-Switch back to main:
-```bash
 git checkout main
 ```
 
 ---
 
-## Step 5: Present Full Summary
+## Phase 4: Present Summary
 
-### Per-iteration results (for newly finished iterations):
+Show results for each newly finished iteration:
 
-For each iteration that just completed:
 ```
 ## Iteration <ID> — COMPLETED
 **Hypothesis:** <hypothesis>
 **Changes:** <change_summary>
 **Result:** <PRIMARY_METRIC>: <VALUE> (baseline: <BASELINE>, delta: <DELTA>)
+**Learnings:** <feedback>
 **Verdict:** NEW_BEST / IMPROVED / REGRESSED
 ```
 
-For each iteration that just failed:
+For failed iterations:
 ```
 ## Iteration <ID> — FAILED
 **Hypothesis:** <hypothesis>
 **Error:** <error summary>
 ```
 
-### Still running:
+For still-running iterations:
 ```
 ## Still Running
 - Iter <ID>: <change_summary> (checkpoint: <CHECKPOINT>)
 ```
 
-### Full research history:
+Then show the full research history:
+
 ```bash
 python -m research_agent.state report
 ```
 
-Present the full report table to the user.
+### Suggest next direction
 
-### Suggest next direction:
-- **Improved?** -> variant of same approach, or combine with another winner
-- **Regressed?** -> revert direction, try something orthogonal
-- **Plateaued (3+ iters)?** -> suggest fresh literature search
-- **Goal reached?** -> congratulate, suggest refinement or stopping
+Based on the results:
+- **Improved?** → suggest a variant of the same approach, or combine with another winning iteration
+- **Regressed?** → suggest reverting direction, try something orthogonal
+- **Plateaued (3+ iterations)?** → suggest a fresh literature search with `/idea-iter`
+- **Goal reached?** → congratulate and suggest refinement or stopping
 
 ---
 
 ## Rules
 
-- Process ALL running iterations in one sweep — don't stop after the first.
-- ALWAYS commit results and push for completed/failed iterations.
-- ALWAYS show the full report at the end.
-- If no experiments are running or finished, just show the current report.
+- Process all running iterations in one sweep.
+- Commit results and push for every completed or failed iteration.
+- Always show the full report at the end.
+- If no experiments are running, just show the current report and suggest next steps.

@@ -21,87 +21,72 @@ hooks:
           command: "python $HOME/.claude/skills/idea-iter/research_agent/hooks/track_state.py"
 ---
 
-# Idea-Iter: Idea -> Code -> Launch
+# Idea-Iter: Autonomous Research Orchestrator
 
-You are an autonomous research orchestrator. The user gives you ONE rough idea. You implement it and **launch the experiment**, then return control so the user can start another iteration concurrently.
+You are orchestrating a research iteration. The user gives you one rough idea — you turn it into a running experiment, then return control immediately so they can launch more iterations in parallel.
 
-Pipeline: **fetch papers -> select approach -> implement code -> commit -> launch experiment -> return**
+```
+/idea-iter try attention gates in the decoder
+/idea-iter improve model generalization with mixup
+/idea-iter --auto increase batch size from 2 to 4
+```
 
-Use `/check-experiments` to collect results after experiments finish.
-
-## Examples
-
-- `/idea-iter try attention gates in the decoder`
-- `/idea-iter improve model generalization with mixup`
-- `/idea-iter --auto increase batch size from 2 to 4`
-
-## Tool Discovery
+Your FIRST action must be to set up the Python tools:
 
 ```bash
 export PYTHONPATH="$HOME/.claude/skills/idea-iter:$PYTHONPATH"
 ```
 
-For CLI reference, read $HOME/.claude/skills/idea-iter/idea-iter/references/cli-reference.md.
-
-## Architecture — What runs where
-
-| Step | Who does it | How |
-|---|---|---|
-| Paper fetching | Python scripts | `idea_discovery.py` or `search_papers.py` — pure API calls, no Claude |
-| Idea generation | Agent subagent | Agent tool reads fetched papers, proposes ideas |
-| Approach selection | You (orchestrator) | Judgment call — pick the best idea |
-| Git setup | Python scripts | `git_ops.py`, `state.py` — pure CLI |
-| Code implementation | Agent subagent | Agent tool reads code, makes edits (Edit tool only, not Write) |
-| GPU preflight | Python script | `deploy.py preflight` — checks GPU availability |
-| Launch experiment | Python script | `deploy.py launch` — local or remote via SSH+screen |
-
-**NEVER call `code_implementation.py` or `literature_search.py`** — they are archived.
+Run this once. All subsequent commands use `python -m research_agent.<module>`.
 
 ---
 
-## Step 0a: Validate Git Repo
+## Phase 1: Validate & Load State
+
+Confirm this is a git repository:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ```
 
-## Step 0b: Load State
+If this fails, stop and tell the user: "This is not a git repo. Run `git init` first."
+
+Now load research state:
 
 ```bash
 test -f state.json && python -m research_agent.state read || echo "NO_STATE"
 ```
 
-Record from the state output: `HAS_STATE`, `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `PRIMARY_METRIC`.
+Note the values: `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `PRIMARY_METRIC`.
 
-If no state exists, initialize:
+If no state exists, create one:
+
 ```bash
 python -m research_agent.state init --goal "$idea" --metric "improvement"
 ```
 
-## Step 0c: Get Next Iter
+Get the next iteration number:
 
 ```bash
 python -m research_agent.state read --field next_id
 ```
-This returns a single integer (e.g., `4`). Store it as `NEXT_ITER`. All subsequent commands use this number.
 
-Extract `IDEA` from `$idea`.
-
-Infer `CATEGORIES`:
-- Medical/imaging -> `medical-imaging`
-- Vision/CV -> `cs.CV`
-- ML/learning -> `cs.LG`
-- NLP/language -> `nlp`
-- Unsure -> `cs.CV,cs.LG`
+Store the result as `NEXT_ITER`. Infer arXiv `CATEGORIES` from the idea:
+- Medical/imaging → `medical-imaging`
+- Vision/CV → `cs.CV`
+- ML/learning → `cs.LG`
+- NLP/language → `nlp`
+- Unsure → `cs.CV,cs.LG`
 
 ---
 
-## Step 1: Fetch Papers (two sources, 10 papers total)
+## Phase 2: Fetch Papers (two sources, ~10 total)
 
-### 1a: arXiv search (top 5 via Python — structured, with full text)
+### 2a: arXiv + Semantic Scholar (structured, with full text)
+
+Run the Python search — this returns 5 relevance-ranked papers with full text from arXiv HTML:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)" && \
 python -m research_agent.idea_discovery \
   --categories <CATEGORIES> \
   --days 7 \
@@ -110,40 +95,34 @@ python -m research_agent.idea_discovery \
   --limit 5
 ```
 
-This returns 5 papers from arXiv API + Semantic Scholar, relevance-ranked by server, with full paper text fetched from arXiv HTML. Results are cached for 15 minutes.
+If this fails, fall back to:
 
-**Fallback** if Python search fails:
 ```bash
 python -m research_agent.search_papers "<IDEA>" results/recent_papers.json --limit 5
 ```
 
-### 1b: WebSearch (top 5 via Claude's search — broader coverage)
+### 2b: WebSearch (broader coverage)
 
-Use the **WebSearch** tool to find 5 more relevant papers. Search for:
-- `"<IDEA>" recent paper 2025 2026 arxiv`
+Use the `WebSearch` tool to search for: `"<IDEA>" recent paper 2025 2026 arxiv`
 
-From the search results, extract up to 5 papers that are NOT already in `results/recent_papers.json` (check by title). For each, record: title, authors, year, abstract (from the search snippet), url, and source: "web_search".
+From the results, extract up to 5 papers NOT already in `results/recent_papers.json`. For each, record title, authors, year, abstract (from snippet), url, and `source: "web_search"`. Append them to `results/recent_papers.json`.
 
-Append these to `results/recent_papers.json` so the file contains up to **10 papers** total: 5 from arXiv (with full text) + up to 5 from WebSearch (with abstracts only).
+For any WebSearch paper with an arXiv URL, use `WebFetch` on the abstract page to get the full abstract.
 
-For any WebSearch paper that has an arXiv URL, optionally use **WebFetch** on the arXiv abstract page to get the full abstract.
+### Result
 
-### 1c: Result
-
-After both steps, `results/recent_papers.json` should contain ~10 papers. If one source fails, proceed with whatever the other returned.
-
-**If all search fails**, skip to Step 2 with just the user's raw idea.
+After both steps, `results/recent_papers.json` should contain ~10 papers. If one source fails, proceed with whatever the other returned. If all search fails, skip to Phase 3 with just the user's raw idea.
 
 ---
 
-## Step 2: Generate Ideas + Select Approach
+## Phase 3: Generate Ideas & Select Approach
 
-### 2a: Generate ideas via Agent
+### 3a: Launch idea generation Agent
 
-Launch an **Agent** (subagent_type: general-purpose) to digest all fetched papers:
+Spawn an Agent (subagent_type: general-purpose) with this prompt:
 
 ```
-Read the file results/recent_papers.json in the project root.
+Read results/recent_papers.json in the project root.
 It contains ~10 papers: some with full text (from arXiv), some with abstracts only (from web search).
 Also read state.json if it exists for project context.
 
@@ -153,7 +132,7 @@ From these papers:
 1. Identify the 3-5 most relevant trends/techniques.
 2. Propose 3-5 concrete research ideas aligned with the user's idea.
 
-For each idea include: title, hypothesis, approach (specific code changes), expected_impact, difficulty (low/medium/high), relevant_papers, and a pilot_design (minimal experiment to test signal before full commitment: what to run, estimated gpu_hours, and success_criterion).
+For each idea include: title, hypothesis, approach (specific code changes), expected_impact, difficulty (low/medium/high), relevant_papers, and a pilot_design (what to run, estimated gpu_hours, success_criterion).
 
 Write output to results/ideas.json as JSON:
 {
@@ -161,54 +140,48 @@ Write output to results/ideas.json as JSON:
   "ideas": [{"id": 1, "title": "...", "hypothesis": "...", "approach": "...", "expected_impact": "...", "difficulty": "low", "relevant_papers": ["..."], "pilot_design": {"experiment": "...", "gpu_hours": 0.5, "success_criterion": "..."}}]
 }
 
-This is a research-only task. Do NOT modify any project code. Only read files and write results/ideas.json.
+This is a research-only task. Do not modify any project code.
 ```
 
-### 2b: Select the best approach (YOUR judgment)
+**Wait for the Agent to complete.**
 
-Read `results/ideas.json`. Select ONE idea based on:
-1. **Relevance** to `IDEA`
-2. **Feasibility** — prefer low/medium difficulty
-3. **Novelty** — skip what overlaps with `LAST_ITERS`
-4. **Concreteness** — clear `approach` field
+### 3b: Select the best approach
 
-Formulate:
-- `HYPOTHESIS`
-- `CHANGE_DESC` (short, for git)
-- `INSTRUCTION` (detailed, for the implementation Agent)
-- `PAPERS_USED`
+Read `results/ideas.json`. Pick ONE idea based on relevance to `IDEA`, feasibility (prefer low/medium difficulty), novelty (skip what overlaps with `LAST_ITERS`), and concreteness.
 
-Tell the user (2-3 lines): which approach and why.
+Formulate: `HYPOTHESIS`, `CHANGE_DESC` (short, for git), `INSTRUCTION` (detailed, for the implementation Agent), `PAPERS_USED`.
 
-**If no ideas.json** (Agent or fetch failed): formulate an instruction directly from the user's raw `IDEA`.
+Tell the user in 2-3 lines which approach you picked and why.
 
-### 2c: Ask for confirmation (unless `--auto`)
+If no ideas.json exists (Agent or fetch failed), formulate an instruction directly from the user's raw `IDEA`.
 
-If `$idea` contains `--auto`, skip this step and proceed directly.
+### 3c: Confirm with user
 
-Otherwise, present the selected approach to the user and ask:
+If `$idea` contains `--auto`, skip confirmation and proceed.
+
+Otherwise, present:
 
 > **Selected approach:** <TITLE>
 > **Hypothesis:** <HYPOTHESIS>
 > **What will change:** <CHANGE_DESC>
 > **Pilot:** <PILOT_EXPERIMENT> (~<GPU_HOURS> GPU-hours)
-> **Pilot success criterion:** <SUCCESS_CRITERION>
 >
-> Proceed with: Full experiment / Pilot first / Modify / Skip
+> Proceed with: **Full experiment** / **Pilot first** / **Modify** / **Skip**
 
-- **Full experiment** -> continue to Step 3 with full experiment
-- **Pilot first** -> continue to Step 3 but use the pilot_design parameters (fewer epochs, smaller data) for a quick signal check
-- **Modify** -> user gives feedback, reformulate INSTRUCTION, then continue
-- **Skip** -> stop here, do not implement
+- **Full experiment** → continue to Phase 4
+- **Pilot first** → continue to Phase 4 with pilot_design parameters (fewer epochs, smaller data)
+- **Modify** → user gives feedback, reformulate, ask again
+- **Skip** → stop here
 
 **Wait for user response before continuing.**
 
 ---
 
-## Step 3: Git Setup + Register Iteration
+## Phase 4: Implement the Change
+
+Create a branch and register the iteration:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)" && \
 python -m research_agent.git_ops branch-start \
   --iteration <NEXT_ITER> \
   --change "<CHANGE_DESC>"
@@ -220,128 +193,111 @@ python -m research_agent.state start-iteration \
   --change "<CHANGE_DESC>"
 ```
 
----
-
-## Step 4: Implement Code via Agent
-
-Launch an **Agent** (subagent_type: general-purpose) to implement the change:
+Now spawn an Agent (subagent_type: general-purpose) to implement the code change:
 
 ```
-You are implementing a code change in the project.
-Working directory: the project root (git repo root)
+You are implementing a code change in this project.
 
 ## Instruction
-<INSTRUCTION — detailed, specific implementation plan>
+<INSTRUCTION>
 
 ## Project Context
 - Goal: <GOAL>
 - Primary metric: <METRIC>
 - Baseline: <BASELINE_METRICS>
 - Current best (iter <N>): <BEST_METRICS>
-- Last change: <LAST_CHANGE> -> <LAST_RESULT>
+- Last change: <LAST_CHANGE> → <LAST_RESULT>
 
 ## Papers
 <PAPER_TITLES_AND_KEY_IDEAS>
 
-## Key files to examine
+## Key files
 <FOCUS_FILES or "explore the codebase to find relevant files">
 
 ## Rules
-1. Read relevant code files FIRST to understand current implementation.
-2. Implement ONE focused change based on the instruction.
-3. Make minimal, surgical edits — don't rewrite entire files.
+1. Read relevant code files first to understand the current implementation.
+2. Implement one focused change. Use the Edit tool for modifications.
+3. Make minimal, surgical edits — do not rewrite entire files.
 4. Verify changes are syntactically correct.
-5. After implementing, write a summary to results/impl_summary.json:
-{
-  "hypothesis": "What you expect this change to achieve",
-  "change_summary": "Short description of what was changed",
-  "files_modified": ["path/to/file1.py"],
-  "papers_used": ["Paper Title"]
-}
+5. Write a summary to results/impl_summary.json:
+   {"hypothesis": "...", "change_summary": "...", "files_modified": [...], "papers_used": [...]}
+```
+
+**Wait for the Agent to complete.**
+
+---
+
+## Phase 5: Review & Commit
+
+Read `results/impl_summary.json` and show the diff:
+
+```bash
+git diff
+```
+
+Briefly tell the user what changed and why. Then commit and push:
+
+```bash
+python -m research_agent.git_ops commit-code \
+  --iteration <NEXT_ITER> \
+  --hypothesis "<HYPOTHESIS>" \
+  --change "<CHANGE_DESC>" \
+  --papers "<PAPER1>" "<PAPER2>"
+```
+
+```bash
+python -m research_agent.git_ops push
 ```
 
 ---
 
-## Step 5: Review + Commit Code
+## Phase 6: Launch Experiment
 
-1. Read `results/impl_summary.json`.
-2. Show the diff:
-   ```bash
-   git diff
-   ```
-3. Briefly tell the user what was changed and why.
+Find the training script. Check in order:
+1. `state.json` — previous iterations may have checkpoint paths hinting at the script
+2. File search — look for `train*.sh`, `train*.py`, `run*.sh`, `scripts/` directory
+3. If not found — ask the user: "What script should I run?"
 
-4. Commit the code:
-   ```bash
-   python -m research_agent.git_ops commit-code \
-     --iteration <NEXT_ITER> \
-     --hypothesis "<HYPOTHESIS>" \
-     --change "<CHANGE_DESC>" \
-     --papers "<PAPER1>" "<PAPER2>"
-   ```
+Pick a unique checkpoint directory (e.g., `checkpoints/iter_<NEXT_ITER>`).
 
-5. Push:
-   ```bash
-   python -m research_agent.git_ops push
-   ```
-
----
-
-## Step 6: Discover Experiment Script + Launch
-
-Find the experiment/training script to run. Check in order:
-
-1. **state.json** — check if previous iterations have checkpoint paths that hint at the script location.
-3. **File search** — look for `train*.sh`, `train*.py`, `run*.sh`, `experiment*.sh`, `scripts/` directory in the project.
-4. **If not found** — ask the user: "What script should I run for the experiment? (e.g., `bash scripts/train.sh`)"
-
-Determine a unique **checkpoint directory** (e.g., `checkpoints/iter_<NEXT_ITER>`).
-
-### Pre-flight GPU check:
+Run a GPU pre-flight check:
 
 ```bash
 python -m research_agent.deploy preflight
 ```
 
-If GPUs are available, proceed. If not, tell the user and ask whether to launch anyway or wait.
+If GPUs are available, launch. If not, ask the user whether to proceed or wait.
 
-### Launch the experiment (non-blocking):
+Launch the experiment with `run_in_background: true`:
 
-> **Note:** The PostToolUse hook auto-updates state.json when `deploy launch` runs — no manual `state launch-iteration` call needed.
-
-Launch in background using `run_in_background: true`:
 ```bash
 python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR>
 ```
 
-For remote GPU deployment, add `--host <HOST>`:
-```bash
-python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR> --host <HOST>
-```
+The PostToolUse hook auto-updates state.json — no manual `state launch-iteration` call needed.
 
-This auto-selects the GPU with most free memory, syncs code to remote, and launches in a screen session.
+For remote deployment, add `--host <HOST>`. The tool auto-selects the GPU with most free memory, syncs code via rsync, and launches in a screen session.
 
-**Do NOT poll. Return control to the user immediately.**
+**Return control to the user immediately. Do not poll.**
 
 ---
 
-## Step 7: Present Launch Summary
+## Phase 7: Summary
 
 Tell the user:
 
 ```
 ## Iteration <N> — Launched
 
-**Idea:** <SELECTED_IDEA_TITLE>
+**Idea:** <TITLE>
 **Hypothesis:** <HYPOTHESIS>
 **Changes:** <CHANGE_DESC> (files: <FILES>)
 **Experiment:** running in `<CHECKPOINT_DIR>`
 
-### What to do next
-1. Run `/check-experiments` to see results when training finishes.
-2. Start another `/idea-iter <new idea>` now — it will run as iteration <N+1> concurrently.
-3. Run `/combine-findings <paper-url>` to integrate a specific paper into current work.
-4. Run `/find-papers <topic>` to explore more literature before the next iteration.
+## What you can do now
+- `/idea-iter <another idea>` — launch iteration <N+1> in parallel
+- `/combine-findings <paper url>` — integrate a paper into current work
+- `/check-experiments` — check when experiments finish
 ```
 
 ---
@@ -350,26 +306,21 @@ Tell the user:
 
 | Level | Paper fetch | Idea generation | Implementation |
 |---|---|---|---|
-| Full | `idea_discovery.py` (top 5 + fulltext) | Agent subagent | Agent subagent |
-| Partial | `search_papers.py` | Agent subagent | Agent subagent |
-| Minimal | WebSearch | Orchestrator synthesizes | Agent subagent |
-| Direct | None | User's raw idea | Agent subagent |
+| Full | `idea_discovery.py` (top 5 + fulltext) + WebSearch (5 more) | Agent | Agent |
+| Partial | `search_papers.py` (5) | Agent | Agent |
+| Minimal | WebSearch only | You synthesize | Agent |
+| Direct | None | User's raw idea | Agent |
 
-Implementation always goes through the Agent tool. Only the quality of paper context degrades.
+Implementation always goes through the Agent tool. Only paper context quality degrades.
 
 ---
 
 ## Rules
 
-- NEVER implement code yourself. ALWAYS use the Agent tool.
-- NEVER call `code_implementation.py` or `literature_search.py` — they are archived.
-- Paper fetching uses pure Python scripts (`idea_discovery.py`, `search_papers.py`) — always safe.
-- Returns top 5 papers with full text.
-- State tracking is automatic via PostToolUse hooks.
-- ONE change per invocation.
-- Run steps sequentially.
-- Keep the user informed with brief status updates at each major step.
-- ALWAYS commit code BEFORE launching experiments.
-- ALWAYS push after commits.
-- Each iteration gets a UNIQUE checkpoint directory — never reuse.
-- After launching the experiment, RETURN IMMEDIATELY. Do NOT poll for completion.
+- Always delegate code changes to an Agent subagent. Use the Edit tool, not Write.
+- Paper fetching uses Python scripts (`idea_discovery.py`, `search_papers.py`) — always safe.
+- State tracking is automatic via PostToolUse hooks on deploy, git commit, and git checkout.
+- One change per invocation. Run phases sequentially.
+- Commit code before launching experiments. Push after commits.
+- Each iteration gets a unique checkpoint directory — never reuse.
+- After launching, return immediately. Do not poll for completion.
