@@ -13,12 +13,12 @@ hooks:
     - matcher: Bash
       hooks:
         - type: command
-          command: "python ~/.claude/skills/idea-iter/research_agent/hooks/track_state.py"
+          command: "python $HOME/.claude/skills/idea-iter/research_agent/hooks/track_state.py"
   PostToolUse:
     - matcher: Bash|Edit
       hooks:
         - type: command
-          command: "python ~/.claude/skills/idea-iter/research_agent/hooks/track_state.py"
+          command: "python $HOME/.claude/skills/idea-iter/research_agent/hooks/track_state.py"
 ---
 
 # Idea-Iter: Idea -> Code -> Launch
@@ -38,10 +38,10 @@ Use `/check-experiments` to collect results after experiments finish.
 ## Tool Discovery
 
 ```bash
-export PYTHONPATH="~/.claude/skills/idea-iter:$PYTHONPATH"
+export PYTHONPATH="$HOME/.claude/skills/idea-iter:$PYTHONPATH"
 ```
 
-For CLI reference, read ~/.claude/skills/idea-iter/idea-iter/references/cli-reference.md.
+For CLI reference, read $HOME/.claude/skills/idea-iter/idea-iter/references/cli-reference.md.
 
 ## Architecture — What runs where
 
