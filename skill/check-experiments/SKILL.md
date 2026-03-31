@@ -6,7 +6,6 @@ argument-hint:
 disable-model-invocation: false
 version: "0.2.0"
 effort: low
-model: sonnet
 allowed-tools: Bash(python -m research_agent:*), Bash(test:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Bash(git checkout:*), Read, Grep
 hooks:
   PostToolUse:
