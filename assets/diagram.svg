@@ -1,132 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" font-family="system-ui, -apple-system, sans-serif">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f0f23" />
-      <stop offset="100%" style="stop-color:#1a1a3e" />
-    </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#6366f1" />
-      <stop offset="100%" style="stop-color:#8b5cf6" />
-    </linearGradient>
-    <linearGradient id="green" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#10b981" />
-      <stop offset="100%" style="stop-color:#34d399" />
-    </linearGradient>
-    <linearGradient id="amber" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#f59e0b" />
-      <stop offset="100%" style="stop-color:#fbbf24" />
-    </linearGradient>
-    <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="#6366f1"/>
-    </marker>
-    <marker id="arr-g" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="#10b981"/>
-    </marker>
-    <marker id="arr-dim" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
-    </marker>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" font-family="system-ui, -apple-system, sans-serif">
+  <rect width="800" height="420" rx="12" fill="#0f0f23"/>
 
-  <rect width="800" height="520" rx="12" fill="url(#bg)"/>
+  <text x="400" y="48" text-anchor="middle" fill="#e2e8f0" font-size="28" font-weight="700">code2idea</text>
+  <text x="400" y="74" text-anchor="middle" fill="#94a3b8" font-size="14">You bring the idea. It writes the code.</text>
 
-  <!-- Title -->
-  <text x="400" y="36" text-anchor="middle" fill="#e2e8f0" font-size="26" font-weight="700">code2idea</text>
-  <text x="400" y="56" text-anchor="middle" fill="#94a3b8" font-size="13">You bring the idea. It writes the code.</text>
+  <rect x="30" y="110" width="160" height="70" rx="10" fill="none" stroke="#6366f1" stroke-width="2"/>
+  <text x="110" y="140" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="600">YOUR IDEA</text>
+  <text x="110" y="160" text-anchor="middle" fill="#94a3b8" font-size="11">"try attention gates</text>
+  <text x="110" y="174" text-anchor="middle" fill="#94a3b8" font-size="11">in the decoder"</text>
 
-  <!-- ── ROW 1: IDEA → CLASSIFY ── -->
+  <line x1="190" y1="145" x2="245" y2="145" stroke="#6366f1" stroke-width="2"/>
+  <polygon points="240,140 250,145 240,150" fill="#6366f1"/>
 
-  <rect x="40" y="80" width="140" height="50" rx="10" fill="none" stroke="url(#accent)" stroke-width="2"/>
-  <text x="110" y="101" text-anchor="middle" fill="#c4b5fd" font-size="12" font-weight="600">YOUR IDEA</text>
-  <text x="110" y="118" text-anchor="middle" fill="#94a3b8" font-size="10">"try attention gates"</text>
+  <rect x="255" y="100" width="120" height="44" rx="8" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
+  <text x="315" y="118" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">FIND PAPERS</text>
+  <text x="315" y="133" text-anchor="middle" fill="#e2e8f0" font-size="12">arXiv + WebSearch</text>
 
-  <line x1="180" y1="105" x2="225" y2="105" stroke="#6366f1" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="255" y="152" width="120" height="44" rx="8" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
+  <text x="315" y="170" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">DISCUSS</text>
+  <text x="315" y="185" text-anchor="middle" fill="#e2e8f0" font-size="12">confirm with user</text>
 
-  <!-- Diamond -->
-  <polygon points="300,75 380,105 300,135 220,105" fill="#1e1e3f" stroke="url(#amber)" stroke-width="1.5"/>
-  <text x="300" y="102" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">CLASSIFY</text>
-  <text x="300" y="115" text-anchor="middle" fill="#94a3b8" font-size="9">specific?</text>
+  <line x1="375" y1="145" x2="425" y2="145" stroke="#6366f1" stroke-width="2"/>
+  <polygon points="420,140 430,145 420,150" fill="#6366f1"/>
 
-  <!-- ── SPECIFIC PATH (straight right, dimmed) ── -->
-  <line x1="380" y1="105" x2="490" y2="105" stroke="#475569" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arr-dim)"/>
-  <text x="435" y="97" text-anchor="middle" fill="#64748b" font-size="10">yes — skip papers</text>
+  <rect x="435" y="110" width="130" height="70" rx="10" fill="#1e1e3f" stroke="#6366f1" stroke-width="2"/>
+  <text x="500" y="135" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">IMPLEMENT</text>
+  <text x="500" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">Agent edits code</text>
+  <text x="500" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">surgical changes</text>
 
-  <!-- ── EXPLORATORY PATH (down then right) ── -->
-  <line x1="300" y1="135" x2="300" y2="170" stroke="#6366f1" stroke-width="2"/>
-  <text x="315" y="157" fill="#64748b" font-size="10">no</text>
+  <line x1="565" y1="145" x2="615" y2="145" stroke="#6366f1" stroke-width="2"/>
+  <polygon points="610,140 620,145 610,150" fill="#6366f1"/>
 
-  <rect x="230" y="170" width="140" height="45" rx="8" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
-  <text x="300" y="189" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">FIND PAPERS</text>
-  <text x="300" y="204" text-anchor="middle" fill="#94a3b8" font-size="9">arXiv API + WebSearch</text>
+  <rect x="625" y="110" width="145" height="70" rx="10" fill="none" stroke="#10b981" stroke-width="2"/>
+  <text x="698" y="135" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">LAUNCH</text>
+  <text x="698" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">Run experiment</text>
+  <text x="698" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">git commit + GPU</text>
 
-  <line x1="370" y1="192" x2="490" y2="192" stroke="#6366f1" stroke-width="2"/>
+  <line x1="50" y1="220" x2="750" y2="220" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="400" y="248" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600" letter-spacing="2">PARALLEL ITERATIONS</text>
 
-  <!-- ── DISCUSS (both paths merge) ── -->
-  <!-- Specific path down to discuss -->
-  <line x1="540" y1="105" x2="540" y2="142" stroke="#475569" stroke-width="1.5"/>
-  <!-- Exploratory path up to discuss -->
-  <line x1="540" y1="192" x2="540" y2="180" stroke="#6366f1" stroke-width="2"/>
+  <rect x="80" y="268" width="640" height="130" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <circle cx="100" cy="284" r="5" fill="#f85149"/>
+  <circle cx="116" cy="284" r="5" fill="#e3b341"/>
+  <circle cx="132" cy="284" r="5" fill="#3fb950"/>
+  <text x="180" y="288" fill="#484f58" font-size="11">claude</text>
 
-  <rect x="490" y="142" width="100" height="38" rx="8" fill="#1e1e3f" stroke="url(#amber)" stroke-width="2"/>
-  <text x="540" y="158" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">DISCUSS</text>
-  <text x="540" y="172" text-anchor="middle" fill="#94a3b8" font-size="9">confirm plan</text>
+  <text x="100" y="312" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="312" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter add attention gates</text>
+  <text x="500" y="312" fill="#3fb950" font-size="12" font-family="monospace">→ iter 1 launched</text>
 
-  <!-- ── IMPLEMENT ── -->
-  <line x1="590" y1="161" x2="630" y2="161" stroke="#6366f1" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="100" y="334" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="334" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter increase batch size</text>
+  <text x="500" y="334" fill="#3fb950" font-size="12" font-family="monospace">→ iter 2 launched</text>
 
-  <rect x="632" y="138" width="90" height="46" rx="8" fill="#1e1e3f" stroke="url(#accent)" stroke-width="2"/>
-  <text x="677" y="158" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">IMPLEMENT</text>
-  <text x="677" y="172" text-anchor="middle" fill="#94a3b8" font-size="9">Agent edits code</text>
+  <text x="100" y="356" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="356" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter try cosine annealing</text>
+  <text x="500" y="356" fill="#3fb950" font-size="12" font-family="monospace">→ iter 3 launched</text>
 
-  <!-- ── ROW 3: COMMIT → LAUNCH → RETURN ── -->
-
-  <line x1="677" y1="184" x2="677" y2="218" stroke="#6366f1" stroke-width="2"/>
-
-  <rect x="580" y="218" width="130" height="32" rx="6" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
-  <text x="645" y="239" text-anchor="middle" fill="#e2e8f0" font-size="11">git commit + push</text>
-
-  <line x1="580" y1="234" x2="530" y2="234" stroke="#6366f1" stroke-width="2" marker-end="url(#arr)"/>
-
-  <rect x="380" y="218" width="150" height="32" rx="6" fill="none" stroke="url(#green)" stroke-width="2"/>
-  <text x="455" y="239" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">Launch experiment</text>
-
-  <line x1="380" y1="234" x2="330" y2="234" stroke="#10b981" stroke-width="2" marker-end="url(#arr-g)"/>
-
-  <rect x="160" y="218" width="170" height="32" rx="6" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="245" y="239" text-anchor="middle" fill="#94a3b8" font-size="11">Return — start next idea</text>
-
-  <!-- ── DIVIDER ── -->
-  <line x1="40" y1="270" x2="760" y2="270" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
-  <text x="400" y="292" text-anchor="middle" fill="#64748b" font-size="11" font-weight="600" letter-spacing="2">PARALLEL ITERATIONS</text>
-
-  <!-- ── TERMINAL ── -->
-  <rect x="60" y="308" width="680" height="195" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
-  <circle cx="80" cy="324" r="5" fill="#f85149"/>
-  <circle cx="96" cy="324" r="5" fill="#e3b341"/>
-  <circle cx="112" cy="324" r="5" fill="#3fb950"/>
-  <text x="156" y="328" fill="#484f58" font-size="11">claude</text>
-
-  <!-- Specific idea -->
-  <text x="80" y="354" fill="#8b949e" font-size="11.5" font-family="monospace">❯</text>
-  <text x="96" y="354" fill="#c9d1d9" font-size="11.5" font-family="monospace">/idea-iter add attention gates to decoder</text>
-  <text x="80" y="372" fill="#94a3b8" font-size="10" font-family="monospace">  Specific → skip papers → discuss plan</text>
-  <text x="548" y="372" fill="#3fb950" font-size="11" font-family="monospace">→ iter 1</text>
-
-  <!-- Exploratory idea -->
-  <text x="80" y="398" fill="#8b949e" font-size="11.5" font-family="monospace">❯</text>
-  <text x="96" y="398" fill="#c9d1d9" font-size="11.5" font-family="monospace">/idea-iter improve model generalization</text>
-  <text x="80" y="416" fill="#94a3b8" font-size="10" font-family="monospace">  Exploratory → 10 papers → propose mixup → discuss</text>
-  <text x="548" y="416" fill="#3fb950" font-size="11" font-family="monospace">→ iter 2</text>
-
-  <!-- Auto mode -->
-  <text x="80" y="442" fill="#8b949e" font-size="11.5" font-family="monospace">❯</text>
-  <text x="96" y="442" fill="#c9d1d9" font-size="11.5" font-family="monospace">/idea-iter --auto increase LR to 3e-4</text>
-  <text x="548" y="442" fill="#3fb950" font-size="11" font-family="monospace">→ iter 3</text>
-
-  <!-- Check -->
-  <text x="80" y="472" fill="#8b949e" font-size="11.5" font-family="monospace">❯</text>
-  <text x="96" y="472" fill="#58a6ff" font-size="11.5" font-family="monospace">/check-experiments</text>
-  <text x="548" y="472" fill="#e3b341" font-size="11" font-family="monospace">→ results</text>
-
-  <!-- Subtle label for --auto -->
-  <text x="80" y="486" fill="#475569" font-size="9" font-family="monospace">  --auto skips discussion</text>
+  <text x="100" y="382" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="382" fill="#58a6ff" font-size="12" font-family="monospace">/check-experiments</text>
+  <text x="500" y="382" fill="#e3b341" font-size="12" font-family="monospace">→ results collected</text>
 </svg>
