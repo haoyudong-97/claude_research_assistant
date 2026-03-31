@@ -92,7 +92,7 @@ function uninstallSkills() {
   }
 
   if (removed === 0) {
-    console.log('  No code2idea skills found to remove.');
+    console.log('  No idea2code skills found to remove.');
   } else {
     console.log(`\n  Removed ${removed} skill(s).`);
   }
@@ -100,12 +100,12 @@ function uninstallSkills() {
 
 function showHelp() {
   console.log(`
-  code2idea — autonomous research loop for Claude Code
+  idea2code — autonomous research loop for Claude Code
 
   Usage:
-    npx code2idea              Install skills to Claude Code
-    npx code2idea --uninstall  Remove installed skills
-    npx code2idea --help       Show this help
+    npx idea2code              Install skills to Claude Code
+    npx idea2code --uninstall  Remove installed skills
+    npx idea2code --help       Show this help
 
   Skills installed:
     /idea-iter <idea>          Idea -> papers -> code -> launch experiment

@@ -1,10 +1,10 @@
 {
-  "name": "code2idea",
-  "version": "2.0.0",
+  "name": "idea2code",
+  "version": "1.0.0",
   "description": "Autonomous research loop for Claude Code. Give one idea, get a launched experiment.",
   "main": "src/index.js",
   "bin": {
-    "code2idea": "./bin/cli.js"
+    "idea2code": "./bin/cli.js"
   },
   "type": "module",
   "files": [
