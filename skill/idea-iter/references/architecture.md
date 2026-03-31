@@ -42,7 +42,7 @@ Claude Code Session
 your_project/
 ├── CLAUDE.md                    # Protocol instructions (appended from protocol.md)
 ├── .claude/skills/              # Slash command definitions
-│   ├── auto-research/SKILL.md
+│   ├── idea-iter/SKILL.md
 │   ├── find-papers/SKILL.md
 │   ├── implement/SKILL.md
 │   └── combine-findings/SKILL.md

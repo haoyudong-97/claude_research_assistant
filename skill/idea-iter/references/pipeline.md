@@ -1,6 +1,6 @@
 # Pipeline Steps (Detail)
 
-Here's exactly what `/auto-research <idea>` does under the hood:
+Here's exactly what `/idea-iter <idea>` does under the hood:
 
 ## Step 0: Load Context
 
