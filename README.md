@@ -3,7 +3,7 @@
 Turn a research idea into running code. One command, one experiment.
 
 <p align="center">
-  <img src="assets/diagram.svg?v=2" alt="code2idea pipeline" width="800"/>
+  <img src="assets/diagram.svg" alt="code2idea pipeline" width="800"/>
 </p>
 
 > "Talk is cheap. Show me the code." But now in the era of AI coding, the reverse might be true — **your ability to create a new idea is far more important than implementing it.**
