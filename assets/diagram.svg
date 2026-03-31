@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f23;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a3e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1" />
+      <stop offset="100%" style="stop-color:#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="green" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#10b981" />
+      <stop offset="100%" style="stop-color:#34d399" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="420" rx="12" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="400" y="48" text-anchor="middle" fill="#e2e8f0" font-size="28" font-weight="700" letter-spacing="-0.5">code2idea</text>
+  <text x="400" y="74" text-anchor="middle" fill="#94a3b8" font-size="14">You bring the idea. It writes the code.</text>
+
+  <!-- Flow: Left side - Your idea -->
+  <rect x="30" y="110" width="160" height="70" rx="10" fill="none" stroke="url(#accent)" stroke-width="2"/>
+  <text x="110" y="140" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="600">YOUR IDEA</text>
+  <text x="110" y="160" text-anchor="middle" fill="#94a3b8" font-size="11">"try attention gates</text>
+  <text x="110" y="174" text-anchor="middle" fill="#94a3b8" font-size="11">in the decoder"</text>
+
+  <!-- Arrow 1 -->
+  <line x1="190" y1="145" x2="230" y2="145" stroke="#6366f1" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Step 1: Papers -->
+  <rect x="235" y="100" width="130" height="44" rx="8" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
+  <text x="300" y="118" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">PHASE 2</text>
+  <text x="300" y="133" text-anchor="middle" fill="#e2e8f0" font-size="12">Find papers</text>
+
+  <!-- Step 2: Read code -->
+  <rect x="235" y="152" width="130" height="44" rx="8" fill="#1e1e3f" stroke="#334155" stroke-width="1"/>
+  <text x="300" y="170" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">PHASE 3</text>
+  <text x="300" y="185" text-anchor="middle" fill="#e2e8f0" font-size="12">Generate ideas</text>
+
+  <!-- Arrow 2 -->
+  <line x1="365" y1="145" x2="405" y2="145" stroke="#6366f1" stroke-width="2"/>
+
+  <!-- Step 3: Implement -->
+  <rect x="410" y="110" width="130" height="70" rx="10" fill="#1e1e3f" stroke="url(#accent)" stroke-width="2"/>
+  <text x="475" y="135" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">PHASE 4</text>
+  <text x="475" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">Implement</text>
+  <text x="475" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">surgical code edits</text>
+
+  <!-- Arrow 3 -->
+  <line x1="540" y1="145" x2="580" y2="145" stroke="#6366f1" stroke-width="2"/>
+
+  <!-- Step 4: Launch -->
+  <rect x="585" y="110" width="180" height="70" rx="10" fill="none" stroke="url(#green)" stroke-width="2"/>
+  <text x="675" y="133" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">PHASE 6</text>
+  <text x="675" y="150" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">Launch experiment</text>
+  <text x="675" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">git commit + GPU deploy</text>
+
+  <!-- Parallel iterations section -->
+  <line x1="50" y1="220" x2="750" y2="220" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="400" y="248" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600" letter-spacing="2">PARALLEL ITERATIONS</text>
+
+  <!-- Terminal mockup -->
+  <rect x="80" y="268" width="640" height="130" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Terminal dots -->
+  <circle cx="100" cy="284" r="5" fill="#f85149"/>
+  <circle cx="116" cy="284" r="5" fill="#e3b341"/>
+  <circle cx="132" cy="284" r="5" fill="#3fb950"/>
+  <text x="180" y="288" fill="#484f58" font-size="11">claude</text>
+
+  <!-- Terminal lines -->
+  <text x="100" y="312" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="312" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter add attention gates</text>
+  <text x="500" y="312" fill="#3fb950" font-size="12" font-family="monospace">→ iter 1 launched</text>
+
+  <text x="100" y="334" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="334" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter increase batch size</text>
+  <text x="500" y="334" fill="#3fb950" font-size="12" font-family="monospace">→ iter 2 launched</text>
+
+  <text x="100" y="356" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="356" fill="#c9d1d9" font-size="12" font-family="monospace">/idea-iter try cosine annealing</text>
+  <text x="500" y="356" fill="#3fb950" font-size="12" font-family="monospace">→ iter 3 launched</text>
+
+  <text x="100" y="382" fill="#8b949e" font-size="12" font-family="monospace">❯</text>
+  <text x="116" y="382" fill="#58a6ff" font-size="12" font-family="monospace">/check-experiments</text>
+  <text x="500" y="382" fill="#e3b341" font-size="12" font-family="monospace">→ results collected</text>
+
+  <!-- Arrowhead marker -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1"/>
+    </marker>
+  </defs>
+</svg>
