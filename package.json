@@ -1,0 +1,38 @@
+{
+  "name": "code2idea",
+  "version": "0.2.0",
+  "description": "Autonomous research loop for Claude Code. Give one idea, get a launched experiment.",
+  "main": "src/index.js",
+  "bin": {
+    "code2idea": "./bin/cli.js"
+  },
+  "type": "module",
+  "files": [
+    "bin/",
+    "src/",
+    "skill/",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/cli.js"
+  },
+  "keywords": [
+    "ai",
+    "research",
+    "claude-code",
+    "skills",
+    "experiment",
+    "arxiv",
+    "idea-iter"
+  ],
+  "author": "Haoyu Dong",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haoyudong-97/claude_research_assistant.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
