@@ -13,7 +13,7 @@ hooks:
     - matcher: Bash|Edit
       hooks:
         - type: command
-          command: "python ${CLAUDE_SKILL_DIR}/research_agent/hooks/track_state.py"
+          command: "python ~/.claude/skills/combine-findings/research_agent/hooks/track_state.py"
 ---
 
 # Combine Existing Findings
@@ -23,7 +23,7 @@ Integrate new input (a paper, an idea, or fresh literature) with the current res
 ## Tool Discovery
 
 ```bash
-export PYTHONPATH="${CLAUDE_SKILL_DIR}:$PYTHONPATH"
+export PYTHONPATH="~/.claude/skills/combine-findings:$PYTHONPATH"
 ```
 
 ## Step 0: Read current state

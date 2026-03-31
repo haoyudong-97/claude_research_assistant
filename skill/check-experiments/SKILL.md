@@ -13,7 +13,7 @@ hooks:
     - matcher: Bash|Edit
       hooks:
         - type: command
-          command: "python ${CLAUDE_SKILL_DIR}/research_agent/hooks/track_state.py"
+          command: "python ~/.claude/skills/check-experiments/research_agent/hooks/track_state.py"
 ---
 
 # Check Experiments
@@ -23,7 +23,7 @@ Sweep all running iterations — complete any that finished, report status of th
 ## Tool Discovery
 
 ```bash
-export PYTHONPATH="${CLAUDE_SKILL_DIR}:$PYTHONPATH"
+export PYTHONPATH="~/.claude/skills/check-experiments:$PYTHONPATH"
 ```
 
 ---
