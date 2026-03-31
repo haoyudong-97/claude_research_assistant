@@ -71,10 +71,6 @@ cd "$(git rev-parse --show-toplevel)"
 test -f state.json && python -m research_agent.state read || echo "NO_STATE"
 ```
 
-```bash
-test -f progress.md && head -30 progress.md || echo "NO_PROGRESS"
-```
-
 Record from the state output: `HAS_STATE`, `GOAL`, `BASELINE`, `BEST`, `LAST_ITERS`, `PRIMARY_METRIC`.
 
 If no state exists, initialize:
@@ -295,8 +291,7 @@ Working directory: the project root (git repo root)
 
 Find the experiment/training script to run. Check in order:
 
-1. **progress.md** — look for a line like `Experiment script: scripts/train.sh` or `## How to run` section above the sentinel.
-2. **state.json** — check if previous iterations have checkpoint paths that hint at the script location.
+1. **state.json** — check if previous iterations have checkpoint paths that hint at the script location.
 3. **File search** — look for `train*.sh`, `train*.py`, `run*.sh`, `experiment*.sh`, `scripts/` directory in the project.
 4. **If not found** — ask the user: "What script should I run for the experiment? (e.g., `bash scripts/train.sh`)"
 

@@ -33,7 +33,7 @@ from pathlib import Path
 
 DEFAULT_STATE_FILE = "state.json"
 DEFAULT_PROGRESS_FILE = "progress.md"
-PROGRESS_SENTINEL = "<!-- AGENT PROGRESS BELOW — auto-updated, do not edit below this line -->"
+PROGRESS_SENTINEL = "<!-- AGENT PROGRESS BELOW — auto-updated, do not edit below this line -->"  # legacy, no longer used
 
 # Valid status values and allowed transitions
 VALID_STATUSES = {"coding", "running", "completed", "failed"}
@@ -73,15 +73,19 @@ def _progress_path() -> Path:
 
 
 def _read_progress_goal(progress_file: str | None) -> str:
-    """Read the user's goal section from progress.md (everything above the sentinel)."""
+    """Legacy: read goal from progress.md. Kept for backward compat."""
     p = Path(progress_file) if progress_file else _progress_path()
     if not p.exists():
         return ""
     text = p.read_text(encoding="utf-8")
-    # Everything above the sentinel is the user's goal
     if PROGRESS_SENTINEL in text:
         return text.split(PROGRESS_SENTINEL)[0].strip()
-    return text.strip()
+    # Take first non-empty line as goal
+    for line in text.splitlines():
+        line = line.strip().lstrip("# ")
+        if line:
+            return line
+    return ""
 
 
 def _iter_status(it: dict) -> str:
@@ -181,24 +185,11 @@ def _status_label(status: str) -> str:
 
 
 def _write_progress(state: dict, status_note: str = "") -> None:
-    """Rewrite progress.md: preserve user goal above sentinel, write tracking below."""
+    """Rewrite progress.md entirely from state.json. No hand-written sections."""
     p = _progress_path()
 
-    # Read existing content to preserve user's goal section
-    user_section = ""
-    if p.exists():
-        text = p.read_text(encoding="utf-8")
-        if PROGRESS_SENTINEL in text:
-            user_section = text.split(PROGRESS_SENTINEL)[0].rstrip()
-        else:
-            user_section = text.rstrip()
-    else:
-        user_section = f"# Research Goal\n\n{state.get('goal', 'N/A')}"
-
-    # Build tracking section
     lines = []
-    lines.append("")
-    lines.append(PROGRESS_SENTINEL)
+    lines.append(f"# {state.get('goal', 'Research Progress')}")
     lines.append("")
 
     # Status bar
@@ -314,10 +305,9 @@ def _write_progress(state: dict, status_note: str = "") -> None:
     lines.append(f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
     lines.append("")
 
-    # Write combined file
-    output = user_section + "\n" + "\n".join(lines)
+    # Write file
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(output, encoding="utf-8")
+    p.write_text("\n".join(lines), encoding="utf-8")
 
 
 def cmd_init(args) -> None:

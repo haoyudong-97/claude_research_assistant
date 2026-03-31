@@ -83,17 +83,9 @@ PostToolUse hooks auto-update `state.json` on deploy, git commit, and git checko
 
 ## Project Setup
 
-Create a `progress.md` in your project:
+Just `cd your-project && claude` and type `/idea-iter improve model generalization`.
 
-```markdown
-# Research Goal
-Improve val_accuracy above 0.92.
-
-## How to run
-Experiment script: scripts/train.sh
-```
-
-Then: `cd your-project && claude` and type `/idea-iter improve model generalization`.
+The skill auto-creates `state.json` (tracks iterations, metrics, best result) and `progress.md` (human-readable dashboard, fully auto-generated from state.json).
 
 ## License
 
