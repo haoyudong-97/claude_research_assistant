@@ -100,27 +100,43 @@ Infer `CATEGORIES`:
 
 ---
 
-## Step 1: Fetch Papers (pure Python — always works)
+## Step 1: Fetch Papers (two sources, 10 papers total)
+
+### 1a: arXiv search (top 5 via Python — structured, with full text)
 
 ```bash
 cd "$(git rev-parse --show-toplevel)" && \
-python research_agent/idea_discovery.py \
+python -m research_agent.idea_discovery \
   --categories <CATEGORIES> \
   --days 7 \
   --s2-query "<IDEA>" \
-  --papers-output results/recent_papers.json
+  --papers-output results/recent_papers.json \
+  --limit 5
 ```
 
-Pass `--state state.json` and `--progress progress.md` if they exist.
+This returns 5 papers from arXiv API + Semantic Scholar, relevance-ranked by server, with full paper text fetched from arXiv HTML. Results are cached for 15 minutes.
 
-Returns top 5 papers with full text. Results are cached — repeated queries are fast.
-
-**Fallback** if this fails:
+**Fallback** if Python search fails:
 ```bash
-python research_agent/search_papers.py "<IDEA>" results/recent_papers.json --limit 15
+python -m research_agent.search_papers "<IDEA>" results/recent_papers.json --limit 5
 ```
 
-**If all search fails**, skip to Step 3 with just the user's raw idea.
+### 1b: WebSearch (top 5 via Claude's search — broader coverage)
+
+Use the **WebSearch** tool to find 5 more relevant papers. Search for:
+- `"<IDEA>" recent paper 2025 2026 arxiv`
+
+From the search results, extract up to 5 papers that are NOT already in `results/recent_papers.json` (check by title). For each, record: title, authors, year, abstract (from the search snippet), url, and source: "web_search".
+
+Append these to `results/recent_papers.json` so the file contains up to **10 papers** total: 5 from arXiv (with full text) + up to 5 from WebSearch (with abstracts only).
+
+For any WebSearch paper that has an arXiv URL, optionally use **WebFetch** on the arXiv abstract page to get the full abstract.
+
+### 1c: Result
+
+After both steps, `results/recent_papers.json` should contain ~10 papers. If one source fails, proceed with whatever the other returned.
+
+**If all search fails**, skip to Step 2 with just the user's raw idea.
 
 ---
 
@@ -128,10 +144,11 @@ python research_agent/search_papers.py "<IDEA>" results/recent_papers.json --lim
 
 ### 2a: Generate ideas via Agent
 
-Launch an **Agent** (subagent_type: general-purpose) to digest the papers:
+Launch an **Agent** (subagent_type: general-purpose) to digest all fetched papers:
 
 ```
 Read the file results/recent_papers.json in the project root.
+It contains ~10 papers: some with full text (from arXiv), some with abstracts only (from web search).
 Also read state.json if it exists for project context.
 
 The user's research idea is: <IDEA>
