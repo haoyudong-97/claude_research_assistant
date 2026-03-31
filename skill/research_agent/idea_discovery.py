@@ -28,7 +28,8 @@ from pathlib import Path
 
 from research_agent.search_papers import (
     _cache_get, _cache_put, _dedup, _http_get, _rank_papers,
-    fetch_fulltext, search_semantic_scholar, MAX_TOTAL_CHARS, TOP_K,
+    fetch_fulltext, search_semantic_scholar, search_arxiv,
+    MAX_TOTAL_CHARS, TOP_K,
 )
 
 ARXIV_RSS_BASE = "https://rss.arxiv.org/rss"
@@ -173,11 +174,36 @@ def run_discovery(categories: str, days: int = 3, s2_query: str | None = None,
     print(f"=== Idea Discovery: {categories} (last {days} days, top {limit}) ===", file=sys.stderr)
     resolved = [CATEGORY_ALIASES.get(c.strip(), c.strip()) for c in categories.split(",")]
     cats = ",".join(resolved)
-    papers = fetch_arxiv_rss(cats, days=days)
+
+    papers: list[dict] = []
+
+    # Primary: query-based search (returns relevance-ranked results from server)
     if s2_query:
+        # arXiv API search — relevance-ranked by the server
+        arxiv_query_papers = search_arxiv(s2_query, limit=20)
+        papers.extend(arxiv_query_papers)
         time.sleep(1)
-        papers.extend(search_semantic_scholar(s2_query, limit=20, year_min=datetime.now().year - 1))
-        papers = _dedup_papers(papers)
+        # Semantic Scholar — also relevance-ranked
+        s2_papers = search_semantic_scholar(s2_query, limit=20, year_min=datetime.now().year - 1)
+        papers.extend(s2_papers)
+        time.sleep(1)
+
+    # Supplement: RSS for bleeding-edge papers (last 1-2 days, not yet in search index)
+    rss_papers = fetch_arxiv_rss(cats, days=min(days, 2))
+    # Only add RSS papers that match the query (basic title/abstract overlap)
+    if s2_query and rss_papers:
+        query_words = set(s2_query.lower().split())
+        for p in rss_papers:
+            text = (p.get("title", "") + " " + p.get("abstract", "")).lower()
+            overlap = sum(1 for w in query_words if w in text)
+            if overlap >= max(1, len(query_words) // 2):
+                papers.append(p)
+        print(f"  RSS filtered: {len(papers) - len(arxiv_query_papers) - len(s2_papers)} relevant of {len(rss_papers)}", file=sys.stderr)
+    elif not s2_query:
+        # No query — use RSS as-is (category browsing mode)
+        papers.extend(rss_papers)
+
+    papers = _dedup_papers(papers)
     if not papers:
         print("No papers found.", file=sys.stderr)
         return None
