@@ -12,13 +12,20 @@ allowed-tools: Bash(python -m research_agent:*), Bash(test:*), Bash(git diff:*),
 
 # Idea-Iter: Autonomous Research Orchestrator
 
-You are orchestrating a research iteration. The user gives you one rough idea — you turn it into a running experiment, then return control immediately so they can launch more iterations in parallel.
+You are orchestrating research iterations. The user gives you one or more ideas — you implement each as a separate iteration, then return control.
 
 ```
 /idea-iter try attention gates in the decoder
-/idea-iter improve model generalization with mixup
+/idea-iter add mixup augmentation and try label smoothing
 /idea-iter --auto increase batch size from 2 to 4
 ```
+
+**Multiple ideas:** If the user gives multiple ideas separated by "and", "also", commas, or numbered lists, treat each as a separate iteration. Run them sequentially — each gets its own branch and checkpoint. For example:
+
+> `/idea-iter add attention gates and try deeper supervision`
+
+→ Iteration N: add attention gates
+→ Iteration N+1: try deeper supervision
 
 Your FIRST action must be to set up the Python tools:
 
@@ -69,9 +76,13 @@ Store the result as `NEXT_ITER`. Infer arXiv `CATEGORIES` from the idea:
 
 ---
 
-## Phase 2: Classify the Idea
+## Phase 2: Parse & Classify
 
-Decide how specific the user's idea is:
+First, check if `$idea` contains multiple ideas. Split on "and", "also", commas, or numbered items. If multiple ideas are found, store them as a list: `IDEAS = [idea_1, idea_2, ...]`. You will run Phase 2–7 for each idea sequentially.
+
+If only one idea, `IDEAS = [idea]`.
+
+For each idea in `IDEAS`, decide how specific it is:
 
 - **Specific** — the idea describes a concrete code change (e.g., "add attention gates to decoder skip connections", "increase batch size to 4", "replace ReLU with GELU in the encoder"). You know exactly what to implement.
 - **Exploratory** — the idea is a direction or question (e.g., "improve generalization", "reduce inference time", "try something with text prompts"). You need papers to figure out *what* to implement.
@@ -271,9 +282,17 @@ For remote deployment, add `--host <HOST>`. The tool auto-selects the GPU with m
 
 ---
 
-## Phase 7: Summary
+## Phase 7: Summary & Next Idea
 
-Tell the user:
+If there are more ideas in `IDEAS`, show a brief summary for this iteration and loop back to Phase 2 for the next idea:
+
+```
+## Iteration <N> — Launched (<IDEA_INDEX>/<TOTAL_IDEAS>)
+**Idea:** <TITLE>  |  Experiment: `<CHECKPOINT_DIR>`
+Continuing to next idea...
+```
+
+If this is the last (or only) idea, show the full summary:
 
 ```
 ## Iteration <N> — Launched
