@@ -25,6 +25,37 @@ export PYTHONPATH="$HOME/.claude/skills/check-experiments:$PYTHONPATH"
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+```
+
+**Check current branch first:**
+
+```bash
+git rev-parse --abbrev-ref HEAD
+```
+
+If NOT on `main`, warn the user immediately:
+
+> **Warning:** You are on branch `<BRANCH>`, not `main`.
+> This means new iterations will branch from here instead of main, and work may accumulate on this branch.
+
+Then check if the branch has unmerged commits:
+
+```bash
+git log main..<BRANCH> --oneline
+```
+
+If there are unmerged commits, tell the user:
+
+> `<BRANCH>` has `<N>` commit(s) not merged to main. Consider merging useful code back to main before starting new work.
+> 1. **Switch to main** — `git checkout main`
+> 2. **Merge to main first** — merge this branch's useful code, then switch
+> 3. **Stay here** — continue on this branch (not recommended)
+
+**Wait for the user's choice before continuing.**
+
+Now load research state:
+
+```bash
 python -m research_agent.state read
 ```
 

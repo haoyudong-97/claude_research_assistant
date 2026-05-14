@@ -5,14 +5,14 @@ when_to_use: When the user gives a research idea and expects code + experiment, 
 argument-hint: <rough idea or research direction> [--auto]
 arguments: idea
 disable-model-invocation: false
-version: "0.2.0"
+version: "0.3.0"
 effort: high
-allowed-tools: Bash(python -m research_agent:*), Bash(test:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Read, Grep, WebFetch(domain:arxiv.org), WebFetch(domain:semanticscholar.org), WebSearch, Agent
+allowed-tools: Bash(python -m research_agent:*), Bash(claude:*), Bash(test:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Bash(cat:*), Bash(sleep:*), Read, Grep, Agent
 ---
 
 # Idea-Iter: Autonomous Research Orchestrator
 
-You are orchestrating research iterations. The user gives you one or more ideas — you implement each as a separate iteration, then return control.
+You are orchestrating research iterations. The user gives you one or more ideas — you dispatch each phase as a **separate background agent** via `claude --bg`, keeping this conversation lean. Each agent gets a fresh context window with only the information it needs.
 
 ```
 /idea-iter try attention gates in the decoder
@@ -20,12 +20,7 @@ You are orchestrating research iterations. The user gives you one or more ideas 
 /idea-iter --auto increase batch size from 2 to 4
 ```
 
-**Multiple ideas:** If the user gives multiple ideas separated by "and", "also", commas, or numbered lists, treat each as a separate iteration. Run them sequentially — each gets its own branch and checkpoint. For example:
-
-> `/idea-iter add attention gates and try deeper supervision`
-
-→ Iteration N: add attention gates
-→ Iteration N+1: try deeper supervision
+**Multiple ideas:** If the user gives multiple ideas separated by "and", "also", commas, or numbered lists, treat each as a separate iteration. Run them sequentially — each gets its own branch and checkpoint.
 
 Your FIRST action must be to set up the Python tools:
 
@@ -33,11 +28,69 @@ Your FIRST action must be to set up the Python tools:
 export PYTHONPATH="$HOME/.claude/skills/idea-iter:$PYTHONPATH"
 ```
 
-Run this once. All subsequent commands use `python -m research_agent.<module>`.
+---
+
+## Background Agent Helpers
+
+### Dispatching a phase
+
+To dispatch a phase as a background agent:
+
+```bash
+claude --bg "<PROMPT>" 2>&1 | grep "backgrounded" | awk '{print $NF}'
+```
+
+This returns the session ID (e.g., `a1b2c3d4`). Store it as `SESSION_ID`.
+
+### Waiting for completion
+
+Poll the session state file until the agent finishes:
+
+```bash
+while true; do
+    STATE=$(python3 -c "
+import json, sys
+try:
+    s = json.load(open('$HOME/.claude/jobs/$SESSION_ID/state.json'))
+    print(s.get('state', 'unknown'))
+except: print('unknown')
+" 2>/dev/null)
+    if [ "$STATE" = "completed" ] || [ "$STATE" = "stopped" ] || [ "$STATE" = "failed" ]; then
+        echo "DONE: $STATE"
+        break
+    fi
+    sleep 15
+done
+```
+
+### Reading agent output
+
+After completion, read the agent's result from the timeline:
+
+```bash
+python3 -c "
+import json
+with open('$HOME/.claude/jobs/$SESSION_ID/timeline.jsonl') as f:
+    for line in f:
+        entry = json.loads(line)
+        if 'text' in entry:
+            print(entry['text'])
+" 2>/dev/null | tail -50
+```
+
+### Cleaning up
+
+After reading the output, stop the session:
+
+```bash
+claude stop $SESSION_ID 2>/dev/null
+```
 
 ---
 
-## Phase 1: Validate & Load State
+## Phase 1: Validate & Load State (inline)
+
+This phase is fast — run it directly, no background agent needed.
 
 Confirm this is a git repository:
 
@@ -61,6 +114,20 @@ If no state exists, create one:
 python -m research_agent.state init --goal "$idea" --metric "improvement"
 ```
 
+**Read the research history before proceeding:**
+
+```bash
+test -f progress.md && cat progress.md || echo "NO_PROGRESS"
+```
+
+This is your research memory. Pay attention to:
+- **What Worked** — build on successful approaches
+- **What Didn't Work** — avoid repeating failed ideas
+- **Patterns** — plateau detection, improving/declining trends
+- **Do Not Repeat** — these ideas have already been tried
+
+Use this context when formulating your hypothesis and implementation plan. If the user's idea overlaps with something already tried, tell them: "Iter N already tried something similar — here's what happened: [result]. Want to proceed with a variant, or try something different?"
+
 Get the next iteration number:
 
 ```bash
@@ -76,7 +143,7 @@ Store the result as `NEXT_ITER`. Infer arXiv `CATEGORIES` from the idea:
 
 ---
 
-## Phase 2: Parse & Classify
+## Phase 2: Parse & Classify (inline + bg agent for paper search)
 
 First, check if `$idea` contains multiple ideas. Split on "and", "also", commas, or numbered items. If multiple ideas are found, store them as a list: `IDEAS = [idea_1, idea_2, ...]`. You will run Phase 2–7 for each idea sequentially.
 
@@ -84,71 +151,64 @@ If only one idea, `IDEAS = [idea]`.
 
 For each idea in `IDEAS`, decide how specific it is:
 
-- **Specific** — the idea describes a concrete code change (e.g., "add attention gates to decoder skip connections", "increase batch size to 4", "replace ReLU with GELU in the encoder"). You know exactly what to implement.
-- **Exploratory** — the idea is a direction or question (e.g., "improve generalization", "reduce inference time", "try something with text prompts"). You need papers to figure out *what* to implement.
+- **Specific** — the idea describes a concrete code change. You know exactly what to implement.
+- **Exploratory** — the idea is a direction or question. You need papers to figure out *what* to implement.
 
 ### If Specific → skip to Phase 3
 
 No paper search needed. Formulate directly:
 - `HYPOTHESIS` — what you expect this change to achieve
 - `CHANGE_DESC` — short summary for git
-- `INSTRUCTION` — detailed implementation plan for the Agent
+- `INSTRUCTION` — detailed implementation plan
 
-### If Exploratory → search for papers first
+### If Exploratory → dispatch paper search agent
 
-#### arXiv + Semantic Scholar (structured, with full text)
+Dispatch a background agent to search for papers and generate ideas:
 
 ```bash
-python -m research_agent.idea_discovery \
-  --categories <CATEGORIES> \
-  --days 7 \
-  --s2-query "<IDEA>" \
-  --papers-output results/recent_papers.json \
-  --limit 5
+claude --bg "You are a research paper search agent working in $(pwd).
+
+export PYTHONPATH=\"\$HOME/.claude/skills/idea-iter:\$PYTHONPATH\"
+
+## Task
+Search for papers relevant to: <IDEA>
+
+## Steps
+1. Run the arXiv + Semantic Scholar search:
+   python -m research_agent.idea_discovery --categories <CATEGORIES> --days 7 --s2-query \"<IDEA>\" --papers-output results/recent_papers.json --limit 5
+
+   If that fails, fallback:
+   python -m research_agent.search_papers \"<IDEA>\" results/recent_papers.json --limit 5
+
+2. Use WebSearch to find: \"<IDEA> recent paper 2025 2026 arxiv\"
+   Extract up to 5 additional papers. Note them.
+
+3. Read results/recent_papers.json, state.json, and progress.md (if they exist).
+   progress.md is the research memory — it tells you what has been tried, what worked, what failed, and what to avoid.
+
+4. From the papers, identify 3-5 relevant trends and propose 3-5 concrete research ideas aligned with: <IDEA>
+   IMPORTANT: Check the 'Do Not Repeat' section in progress.md — do NOT propose ideas that overlap with already-tried iterations.
+   Build on approaches listed under 'What Worked'. Avoid directions listed under 'What Didn't Work' unless you have a specific reason.
+
+5. Write output to results/ideas.json as JSON:
+   {
+     \"trend_digest\": [\"Trend 1: ...\", ...],
+     \"ideas\": [{\"id\": 1, \"title\": \"...\", \"hypothesis\": \"...\", \"approach\": \"...\", \"expected_impact\": \"...\", \"difficulty\": \"low\", \"relevant_papers\": [\"...\"], \"pilot_design\": {\"experiment\": \"...\", \"gpu_hours\": 0.5, \"success_criterion\": \"...\"}}]
+   }
+
+6. Do NOT modify any project code. Only write to results/.
+" 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
-Fallback: `python -m research_agent.search_papers "<IDEA>" results/recent_papers.json --limit 5`
+Store the session ID. **Wait for completion** using the polling helper above.
 
-#### WebSearch (broader coverage)
-
-Use the `WebSearch` tool to search for: `"<IDEA>" recent paper 2025 2026 arxiv`
-
-Extract up to 5 additional papers not already in `results/recent_papers.json`. Append them with `source: "web_search"`.
-
-#### Generate ideas from papers
-
-Spawn an Agent (subagent_type: general-purpose) with this prompt:
-
-```
-Read results/recent_papers.json in the project root.
-Also read state.json if it exists for project context.
-
-The user's research direction is: <IDEA>
-
-From these papers:
-1. Identify the 3-5 most relevant trends/techniques.
-2. Propose 3-5 concrete research ideas aligned with the user's direction.
-
-For each idea include: title, hypothesis, approach (specific code changes), expected_impact, difficulty (low/medium/high), relevant_papers, and a pilot_design (what to run, estimated gpu_hours, success_criterion).
-
-Write output to results/ideas.json as JSON:
-{
-  "trend_digest": ["Trend 1: ...", ...],
-  "ideas": [{"id": 1, "title": "...", "hypothesis": "...", "approach": "...", "expected_impact": "...", "difficulty": "low", "relevant_papers": ["..."], "pilot_design": {"experiment": "...", "gpu_hours": 0.5, "success_criterion": "..."}}]
-}
-
-This is a research-only task. Do not modify any project code.
-```
-
-**Wait for the Agent to complete.**
-
-Read `results/ideas.json`. Pick ONE idea based on relevance, feasibility (prefer low/medium), novelty (skip overlap with `LAST_ITERS`), and concreteness.
+After the agent finishes, read `results/ideas.json`. Pick ONE idea based on relevance, feasibility (prefer low/medium), novelty (skip overlap with `LAST_ITERS`), and concreteness.
 
 Formulate: `HYPOTHESIS`, `CHANGE_DESC`, `INSTRUCTION`, `PAPERS_USED`.
 
 ---
 
-## Phase 3: Discuss with User
+## Phase 3: Discuss with User (inline)
 
 Always discuss the plan before implementing — even for specific ideas.
 
@@ -171,9 +231,9 @@ Present:
 
 ---
 
-## Phase 4: Implement the Change
+## Phase 4: Implement the Change (bg agent)
 
-Create a branch and register the iteration:
+First, create a branch and register the iteration **inline** (git ops must happen in the main repo):
 
 ```bash
 python -m research_agent.git_ops branch-start \
@@ -181,16 +241,29 @@ python -m research_agent.git_ops branch-start \
   --change "<CHANGE_DESC>"
 ```
 
+**If exit code is 2:** The current branch has unmerged work. Show the user the warning output and ask:
+
+> **Warning:** You're on branch `<BRANCH>` which has unmerged commits/changes.
+> 1. **Merge to main first** — merge useful code from `<BRANCH>` to main, then branch from updated main
+> 2. **Continue anyway** — switch to main and branch (unmerged work stays on `<BRANCH>`)
+> 3. **Cancel** — stop this iteration
+
+Wait for the user's choice. If (1), run `git checkout main && git merge <BRANCH>` then re-run `branch-start --force`. If (2), re-run `branch-start --force`. If (3), stop.
+
 ```bash
 python -m research_agent.state start-iteration \
   --hypothesis "<HYPOTHESIS>" \
   --change "<CHANGE_DESC>"
 ```
 
-Now spawn an Agent (subagent_type: general-purpose) to implement the code change:
+Now dispatch the implementation agent. The agent works in the project directory on the current branch:
 
-```
-You are implementing a code change in this project.
+```bash
+claude --bg "You are implementing a code change in $(pwd).
+You are on branch $(git rev-parse --abbrev-ref HEAD).
+
+## First: Read progress.md
+Read progress.md in the project root. This is the research memory — it shows what has been tried before, what worked, and what failed. Use it to inform your implementation.
 
 ## Instruction
 <INSTRUCTION>
@@ -206,22 +279,33 @@ You are implementing a code change in this project.
 <PAPER_TITLES_AND_KEY_IDEAS>
 
 ## Key files
-<FOCUS_FILES or "explore the codebase to find relevant files">
+<FOCUS_FILES or 'explore the codebase to find relevant files'>
 
 ## Rules
 1. Read relevant code files first to understand the current implementation.
 2. Implement one focused change. Use the Edit tool for modifications.
 3. Make minimal, surgical edits — do not rewrite entire files.
 4. Verify changes are syntactically correct.
-5. Write a summary to results/impl_summary.json:
-   {"hypothesis": "...", "change_summary": "...", "files_modified": [...], "papers_used": [...]}
+5. If you need data, weights, or checkpoints, create symlinks (ln -sfn <source> <link>) — NEVER copy or download large files into the project. Add symlink targets to .gitignore.
+6. When done, write a summary to results/impl_summary.json:
+   {\"hypothesis\": \"...\", \"change_summary\": \"...\", \"files_modified\": [...], \"papers_used\": [...]}
+7. Do NOT commit or push. Only edit code and write the summary.
+" 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
-**Wait for the Agent to complete.**
+Store the session ID. **Wait for completion** using the polling helper.
+
+After the agent finishes, verify the changes were made:
+
+```bash
+git diff --stat
+```
+
+If no changes and `results/impl_summary.json` doesn't exist, the implementation failed. Read the agent's timeline output to understand why, and report to the user.
 
 ---
 
-## Phase 5: Review & Commit
+## Phase 5: Review & Commit (inline)
 
 Read `results/impl_summary.json` and show the diff:
 
@@ -245,7 +329,7 @@ python -m research_agent.git_ops push
 
 ---
 
-## Phase 6: Launch Experiment
+## Phase 6: Launch Experiment (bg agent)
 
 Find the training script. Check in order:
 1. `state.json` — previous iterations may have checkpoint paths hinting at the script
@@ -254,35 +338,40 @@ Find the training script. Check in order:
 
 Pick a unique checkpoint directory (e.g., `checkpoints/iter_<NEXT_ITER>`).
 
-Run a GPU pre-flight check:
+Dispatch the launch agent:
 
 ```bash
-python -m research_agent.deploy preflight
+claude --bg "You are launching an experiment in $(pwd).
+
+export PYTHONPATH=\"\$HOME/.claude/skills/idea-iter:\$PYTHONPATH\"
+
+## Task
+1. Run GPU pre-flight check:
+   python -m research_agent.deploy preflight
+
+2. If GPUs available, launch the experiment:
+   python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR>
+
+   For remote deployment, add: --host <HOST>
+
+3. After launching, update state:
+   python -m research_agent.state launch-iteration --id <NEXT_ITER> --checkpoint \"<CHECKPOINT_DIR>\"
+
+4. Report which GPU was selected and the PID.
+
+If no GPUs are available, report that and exit — do NOT wait.
+" 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
-If GPUs are available, launch. If not, ask the user whether to proceed or wait.
+Store the session ID. **Wait for completion** using the polling helper.
 
-Launch the experiment with `run_in_background: true`:
+After the agent finishes, read its output to confirm the experiment launched. If it reported no GPUs, tell the user.
 
-```bash
-python -m research_agent.deploy launch <EXP_SCRIPT> <CHECKPOINT_DIR>
-```
-
-After launching, update state:
-
-```bash
-python -m research_agent.state launch-iteration \
-  --id <NEXT_ITER> \
-  --checkpoint "<CHECKPOINT_DIR>"
-```
-
-For remote deployment, add `--host <HOST>`. The tool auto-selects the GPU with most free memory, syncs code via rsync, and launches in a screen session.
-
-**Return control to the user immediately. Do not poll.**
+**Clean up the session and return control to the user. Do not poll the experiment.**
 
 ---
 
-## Phase 7: Summary & Next Idea
+## Phase 7: Summary & Next Idea (inline)
 
 If there are more ideas in `IDEAS`, show a brief summary for this iteration and loop back to Phase 2 for the next idea:
 
@@ -308,29 +397,70 @@ If this is the last (or only) idea, show the full summary:
 - `/check-experiments` — check when experiments finish
 ```
 
+Clean up all finished background sessions:
+
+```bash
+claude stop $PAPER_SESSION_ID 2>/dev/null
+claude stop $IMPL_SESSION_ID 2>/dev/null
+claude stop $LAUNCH_SESSION_ID 2>/dev/null
+```
+
 ---
 
 ## Fallback Chain
 
 | Idea type | Paper search | Idea generation | Implementation |
 |---|---|---|---|
-| Specific idea | Skipped | User's idea directly | Agent |
-| Exploratory + papers found | arXiv + WebSearch (~10) | Agent proposes from papers | Agent |
-| Exploratory + search fails | WebSearch only | Agent or you synthesize | Agent |
-| Exploratory + all fails | None | User refines the idea | Agent |
+| Specific idea | Skipped | User's idea directly | bg agent |
+| Exploratory + papers found | bg agent (arXiv + WebSearch) | bg agent proposes from papers | bg agent |
+| Exploratory + search fails | bg agent (WebSearch only) | bg agent or orchestrator | bg agent |
+| Exploratory + all fails | None | User refines the idea | bg agent |
 
-Implementation always goes through the Agent tool. Paper search only runs for exploratory ideas.
+Each heavy phase runs as its own `claude --bg` session. The orchestrator (this conversation) handles state, user interaction, git branching, and coordination.
 
 ---
 
 ## Rules
 
-- Always delegate code changes to an Agent subagent. Use the Edit tool, not Write.
+- **Dispatch heavy work to background agents.** Paper search, code implementation, and experiment launch each get their own `claude --bg` session.
+- **Keep inline work lightweight.** State loading, user discussion, git branching, review, commit, and summary stay in this conversation.
+- **Wait for each agent to complete before proceeding.** Poll `~/.claude/jobs/<id>/state.json` for `"state": "completed"` or `"stopped"`.
+- **Git operations stay inline.** Branch creation, commits, and pushes run in this conversation — never in a bg agent. This prevents worktree isolation from diverging branches.
+- **Bg agents do NOT commit or push.** They only edit code and write output files. The orchestrator handles all git operations.
 - Paper fetching uses Python scripts (`idea_discovery.py`, `search_papers.py`) — always safe.
 - Update state.json after launching experiments (use `state launch-iteration`).
 - One change per invocation. Run phases sequentially.
 - Commit code before launching experiments. Push after commits.
 - Each iteration gets a unique checkpoint directory — never reuse.
-- After launching, return immediately. Do not poll for completion.
-- Never run git commands with `run_in_background`. Git operations must complete before the next step. Only `deploy launch` runs in background.
-- When handling multiple ideas: complete ALL phases (implement, commit, push, launch) for one idea before starting the next. Never overlap git operations between ideas. Wait for each Agent subagent to fully finish before proceeding.
+- After launching, return immediately. Do not poll for experiment completion.
+- When handling multiple ideas: complete ALL phases for one idea before starting the next.
+- Clean up background sessions (`claude stop <id>`) after reading their output.
+
+### Data & weights: symlink, never copy
+
+Large files (datasets, model weights, checkpoints, preprocessed data) **must not** live inside the git-tracked project tree. Branch switching, rebasing, or cleaning will wipe them.
+
+**Rule:** When the implementation needs data or weights, **symlink** them into the project from a stable location outside the repo. Never copy, move, or download them directly into the project directory.
+
+```bash
+# Good — symlink from a stable path
+ln -sfn /data/datasets/AMOS_CT nnUNet_raw/Dataset003_AMOS_CT
+ln -sfn /data/checkpoints/iter_5 checkpoints/iter_5
+
+# Bad — copying into the repo (will be lost on branch switch)
+cp -r /data/datasets/AMOS_CT nnUNet_raw/Dataset003_AMOS_CT
+```
+
+Ensure `.gitignore` covers all large-file directories. At project init or first iteration, verify these patterns exist in `.gitignore`:
+
+```
+checkpoints/
+nnUNet_raw/
+nnUNet_preprocessed/
+nnUNet_results/
+*.pth
+*.npz
+*.nii.gz
+```
+
+If missing, add them before committing.

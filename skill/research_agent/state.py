@@ -185,14 +185,16 @@ def _status_label(status: str) -> str:
 
 
 def _write_progress(state: dict, status_note: str = "") -> None:
-    """Rewrite progress.md entirely from state.json. No hand-written sections."""
+    """Rewrite progress.md entirely from state.json.
+
+    This file serves as the research memory — read it before every new
+    iteration to understand what has been tried, what worked, what failed,
+    and what to try next. It is structured for decision-making, not just
+    record-keeping.
+    """
     p = _progress_path()
 
     lines = []
-    lines.append(f"# {state.get('goal', 'Research Progress')}")
-    lines.append("")
-
-    # Status bar
     iters = state.get("iterations", [])
     counts = _status_counts(iters)
     primary = state.get("primary_metric", "")
@@ -206,22 +208,130 @@ def _write_progress(state: dict, status_note: str = "") -> None:
         best_val = best["metrics"].get(primary, "N/A")
         best_iter = f" (iter {best.get('iteration', '?')})"
 
-    lines.append("## Status")
-    lines.append("")
-    lines.append("| | |")
-    lines.append("|---|---|")
-    lines.append(f"| **Primary metric** | `{primary}` |")
-    lines.append(f"| **Baseline** | {bl_val} |")
-    lines.append(f"| **Best** | {best_val}{best_iter} |")
-    lines.append(f"| **Iterations** | {_format_status_summary(counts)} |")
-    lines.append(f"| **Started** | {state.get('created_at', 'N/A')} |")
+    lines.append(f"# {state.get('goal', 'Research Progress')}")
     lines.append("")
 
-    if status_note:
-        lines.append(f"> **Current direction:** {status_note}")
+    # ── Quick Reference (read this first) ─────────────────────────
+    lines.append("## Quick Reference")
+    lines.append("")
+    lines.append(f"- **Goal:** {state.get('goal', 'N/A')}")
+    lines.append(f"- **Metric:** `{primary}` — baseline: {bl_val}, best: {best_val}{best_iter}")
+    lines.append(f"- **Iterations:** {_format_status_summary(counts)}")
+    lines.append("")
+
+    # ── What Worked / What Didn't ─────────────────────────────────
+    completed = [it for it in iters if _iter_status(it) == "completed"]
+    failed = [it for it in iters if _iter_status(it) == "failed"]
+
+    if completed:
+        # Sort by metric value descending
+        def _metric_val(it):
+            try:
+                return float(it.get("metrics", {}).get(primary, 0))
+            except (ValueError, TypeError):
+                return 0
+        ranked = sorted(completed, key=_metric_val, reverse=True)
+
+        # Identify improvements vs regressions relative to baseline
+        improved = []
+        regressed = []
+        for it in ranked:
+            m = it.get("metrics", {}).get(primary)
+            if m is not None and bl_val != "N/A":
+                try:
+                    delta = float(m) - float(bl_val)
+                    entry = (it, delta)
+                    if delta > 0:
+                        improved.append(entry)
+                    else:
+                        regressed.append(entry)
+                except (ValueError, TypeError):
+                    pass
+
+        lines.append("## What Worked")
+        lines.append("")
+        if improved:
+            for it, delta in improved:
+                lines.append(f"- **Iter {it['id']}** (+{delta:.4f}): {it.get('change_summary', 'N/A')}")
+                if it.get("feedback"):
+                    lines.append(f"  - Insight: {it['feedback']}")
+        else:
+            lines.append("- Nothing has improved over baseline yet.")
         lines.append("")
 
-    # Active experiments section
+        lines.append("## What Didn't Work")
+        lines.append("")
+        if regressed:
+            for it, delta in regressed:
+                lines.append(f"- **Iter {it['id']}** ({delta:+.4f}): {it.get('change_summary', 'N/A')}")
+                if it.get("feedback"):
+                    lines.append(f"  - Insight: {it['feedback']}")
+        else:
+            lines.append("- No regressions recorded.")
+        lines.append("")
+
+    if failed:
+        lines.append("## Failed Experiments")
+        lines.append("")
+        for it in failed:
+            lines.append(f"- **Iter {it['id']}**: {it.get('change_summary', 'N/A')}")
+            lines.append(f"  - Error: {it.get('feedback', 'unknown')}")
+        lines.append("")
+
+    # ── Patterns & Insights ───────────────────────────────────────
+    # Auto-generate patterns from completed iterations
+    if len(completed) >= 3:
+        lines.append("## Patterns")
+        lines.append("")
+        lines.append("<!-- Auto-generated from iteration results. "
+                      "Read these before proposing a new idea. -->")
+        lines.append("")
+
+        # Streak detection
+        if len(completed) >= 3:
+            recent_3 = sorted(completed, key=lambda x: x["id"])[-3:]
+            recent_deltas = []
+            for it in recent_3:
+                m = it.get("metrics", {}).get(primary)
+                if m is not None and bl_val != "N/A":
+                    try:
+                        recent_deltas.append(float(m) - float(bl_val))
+                    except (ValueError, TypeError):
+                        pass
+            if len(recent_deltas) == 3:
+                if all(abs(d - recent_deltas[0]) < 0.01 for d in recent_deltas):
+                    lines.append("- **PLATEAU detected:** last 3 iterations within 0.01 of each other. "
+                                 "Consider a fundamentally different approach or fresh paper search.")
+                elif all(d > recent_deltas[i] for i, d in enumerate(recent_deltas[1:], 0)):
+                    lines.append("- **Improving trend:** last 3 iterations show consistent gains. "
+                                 "Consider pushing this direction further.")
+                elif all(d < 0 for d in recent_deltas):
+                    lines.append("- **All recent iterations regressed.** "
+                                 "Revisit assumptions or try a completely different approach.")
+        lines.append("")
+
+    # ── Do Not Repeat ─────────────────────────────────────────────
+    all_changes = [it.get("change_summary", "") for it in iters if it.get("change_summary")]
+    if all_changes:
+        lines.append("## Do Not Repeat")
+        lines.append("")
+        lines.append("These ideas have already been tried. Do not propose them again:")
+        lines.append("")
+        for it in iters:
+            chg = it.get("change_summary", "")
+            if not chg:
+                continue
+            status = _iter_status(it)
+            m = it.get("metrics", {}).get(primary)
+            if status == "completed" and m is not None:
+                lines.append(f"- ~~{chg}~~ → {primary}: {m}")
+            elif status == "failed":
+                lines.append(f"- ~~{chg}~~ → FAILED")
+            else:
+                lines.append(f"- {chg} [{status}]")
+        lines.append("")
+
+    # ── Active Experiments ────────────────────────────────────────
     active_iters = [it for it in iters if _iter_status(it) in ("coding", "running")]
     if active_iters:
         lines.append("## Active Experiments")
@@ -237,22 +347,12 @@ def _write_progress(state: dict, status_note: str = "") -> None:
             lines.append(f"- **Iter {it['id']}** [{label}] ({age}) — {change}{ckpt_str}")
         lines.append("")
 
-    # Baseline details
-    if bl:
-        lines.append("## Baseline")
-        lines.append(f"- Checkpoint: `{bl.get('checkpoint', 'N/A')}`")
-        for k, v in bl.get("metrics", {}).items():
-            lines.append(f"- {k}: **{v}**")
-        lines.append("")
-
-    # Iteration log
+    # ── Full Iteration Log ────────────────────────────────────────
     if iters:
         lines.append("## Iteration Log")
         lines.append("")
-
-        # Compute delta vs baseline for primary metric
-        header = f"| # | Change | {primary} | vs baseline | Feedback |"
-        sep = f"|---|--------|{'---'}|------------|----------|"
+        header = f"| # | Change | {primary} | vs baseline | Learnings |"
+        sep = "|---|--------|---|------------|-----------|"
         lines.append(header)
         lines.append(sep)
 
@@ -260,7 +360,6 @@ def _write_progress(state: dict, status_note: str = "") -> None:
             status = _iter_status(it)
             m_val = it.get("metrics", {}).get(primary, None)
 
-            # Show status label for non-completed iterations
             label = _status_label(status)
             if status == "completed":
                 m_str = f"{m_val}" if m_val is not None else "N/A"
@@ -278,22 +377,22 @@ def _write_progress(state: dict, status_note: str = "") -> None:
             else:
                 delta_str = label if status != "completed" else "N/A"
 
-            chg = it.get("change_summary", "")[:50]
-            fb = it.get("feedback", "")[:50]
+            chg = it.get("change_summary", "")[:60]
+            fb = it.get("feedback", "")[:80]
             lines.append(f"| {it['id']} | {chg} | {m_str} | {delta_str} | {fb} |")
         lines.append("")
 
-    # Detailed iteration notes (all iterations)
+    # ── Detailed Notes ────────────────────────────────────────────
     if iters:
-        lines.append("## Iterations (detail)")
+        lines.append("## Iteration Details")
         lines.append("")
         for it in reversed(iters):
             status = _iter_status(it)
             status_suffix = f" [{status}]" if status != "completed" else ""
-            lines.append(f"### Iteration {it['id']}{status_suffix} — {it.get('change_summary', 'N/A')}")
+            lines.append(f"### Iter {it['id']}{status_suffix} — {it.get('change_summary', 'N/A')}")
             lines.append("")
 
-            # Method paragraph
+            # Method
             lines.append("**Method:**")
             method_parts = []
             if it.get("hypothesis"):
@@ -326,7 +425,7 @@ def _write_progress(state: dict, status_note: str = "") -> None:
                 lines.append(f"**Result:** {_status_label(status)}")
                 lines.append("")
 
-            # Learnings paragraph
+            # Learnings
             if it.get("feedback") and status in ("completed", "failed"):
                 lines.append("**Learnings:**")
                 lines.append(it["feedback"])

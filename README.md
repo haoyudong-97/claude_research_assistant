@@ -36,12 +36,13 @@ npx idea2code
 
 ```bash
 git clone https://github.com/haoyudong-97/idea2code.git /tmp/idea2code && \
-  rm -rf ~/.claude/skills/idea-iter ~/.claude/skills/check-experiments ~/.claude/skills/combine-findings ~/.claude/skills/auto-loop && \
+  rm -rf ~/.claude/skills/idea-iter ~/.claude/skills/check-experiments ~/.claude/skills/combine-findings ~/.claude/skills/auto-loop ~/.claude/skills/reset-iterations ~/.claude/skills/reset-iterations && \
   cp -r /tmp/idea2code/skill/idea-iter ~/.claude/skills/ && \
   cp -r /tmp/idea2code/skill/check-experiments ~/.claude/skills/ && \
   cp -r /tmp/idea2code/skill/combine-findings ~/.claude/skills/ && \
   cp -r /tmp/idea2code/skill/auto-loop ~/.claude/skills/ && \
-  for s in idea-iter check-experiments combine-findings auto-loop; do \
+  cp -r /tmp/idea2code/skill/reset-iterations ~/.claude/skills/ && \
+  for s in idea-iter check-experiments combine-findings auto-loop reset-iterations; do \
     cp -r /tmp/idea2code/skill/research_agent ~/.claude/skills/$s/; \
   done && \
   rm -rf /tmp/idea2code && \
@@ -57,7 +58,7 @@ git clone https://github.com/haoyudong-97/idea2code.git /tmp/idea2code && \
 ### Uninstall
 
 ```bash
-rm -rf ~/.claude/skills/idea-iter ~/.claude/skills/check-experiments ~/.claude/skills/combine-findings ~/.claude/skills/auto-loop
+rm -rf ~/.claude/skills/idea-iter ~/.claude/skills/check-experiments ~/.claude/skills/combine-findings ~/.claude/skills/auto-loop ~/.claude/skills/reset-iterations
 ```
 
 ## Skills
@@ -69,6 +70,7 @@ rm -rf ~/.claude/skills/idea-iter ~/.claude/skills/check-experiments ~/.claude/s
 | `/check-experiments` | Check running experiments, collect results, suggest next steps |
 | `/combine-findings <input>` | Integrate a paper URL, rough idea, or literature into current work |
 | `/auto-loop <goal>` | Run multiple iterations automatically toward a high-level goal |
+| `/reset-iterations [reason]` | Archive current state and restart from iter/1 (new dataset, new direction) |
 
 ### /idea-iter
 

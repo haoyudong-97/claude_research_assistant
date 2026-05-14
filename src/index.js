@@ -9,7 +9,7 @@ const SKILL_SRC = join(__dirname, '..', 'skill');
 // Claude Code skill directory
 const CLAUDE_SKILLS_DIR = join(homedir(), '.claude', 'skills');
 
-const SKILLS = ['idea-iter', 'check-experiments', 'combine-findings', 'auto-loop'];
+const SKILLS = ['idea-iter', 'check-experiments', 'combine-findings', 'auto-loop', 'reset-iterations'];
 
 function detectClaudeCode() {
   const claudeDir = join(homedir(), '.claude');
