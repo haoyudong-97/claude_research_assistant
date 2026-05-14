@@ -7,7 +7,7 @@ arguments: idea
 disable-model-invocation: false
 version: "0.3.0"
 effort: high
-allowed-tools: Bash(python -m research_agent:*), Bash(claude:*), Bash(test:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Bash(cat:*), Bash(sleep:*), Read, Grep, Agent
+allowed-tools: Bash(python -m research_agent:*), Bash(claude:*), Bash(test:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*), Bash(git branch:*), Bash(cat:*), Bash(sleep:*), Read, Grep
 ---
 
 # Idea-Iter: Autonomous Research Orchestrator
@@ -422,8 +422,32 @@ Each heavy phase runs as its own `claude --bg` session. The orchestrator (this c
 
 ## Rules
 
-- **Dispatch heavy work to background agents.** Paper search, code implementation, and experiment launch each get their own `claude --bg` session.
-- **Keep inline work lightweight.** State loading, user discussion, git branching, review, commit, and summary stay in this conversation.
+### MANDATORY: Use `claude --bg` for all code work
+
+**You MUST dispatch code implementation, paper search, and experiment launch to `claude --bg` sessions. You MUST NOT write code, create files, or edit files directly in this conversation.** This is not a suggestion — the `Edit`, `Write`, and `Agent` tools are intentionally not available to this skill.
+
+Why this is non-negotiable:
+- Each bg session gets a **fresh context window** — this conversation stays clean
+- bg sessions run in **isolated worktrees** — no git conflicts between tasks
+- The orchestrator's job is to **coordinate, not implement**
+- Inline code writing causes context bloat, branch drift (the iter/23 problem), and git lock conflicts
+
+**This conversation may only:**
+- Read files (Read, Grep) — to check results, read progress.md, review diffs
+- Run research_agent Python tools — state management, git ops, deploy
+- Run `claude --bg` — to dispatch work
+- Run git commands — branching, committing, pushing
+- Communicate with the user — discuss plans, show results
+
+**This conversation must NOT:**
+- Write or edit any project code files
+- Use the Agent tool to spawn inline subagents for code work
+- Implement anything directly, no matter how small the task seems
+
+If a task seems "too small" for `claude --bg`, dispatch it anyway. The overhead is worth it to keep this conversation clean and organized.
+
+### Other rules
+
 - **Wait for each agent to complete before proceeding.** Poll `~/.claude/jobs/<id>/state.json` for `"state": "completed"` or `"stopped"`.
 - **Git operations stay inline.** Branch creation, commits, and pushes run in this conversation — never in a bg agent. This prevents worktree isolation from diverging branches.
 - **Bg agents do NOT commit or push.** They only edit code and write output files. The orchestrator handles all git operations.
