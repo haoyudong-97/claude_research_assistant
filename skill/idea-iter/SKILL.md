@@ -46,21 +46,47 @@ This returns the session ID (e.g., `a1b2c3d4`). Store it as `SESSION_ID`.
 
 ### Waiting for completion
 
-Poll the session state file until the agent finishes:
+Poll the session state file until the agent finishes. A bg session can end in several states:
+- `"done"` — task completed successfully
+- `"stopped"` — manually stopped
+- `"failed"` — error
+- `"blocked"` — agent is waiting for input (may mean it finished but is asking a follow-up)
+
+The polling loop checks for terminal states AND detects blocked sessions that have finished their work:
 
 ```bash
 while true; do
-    STATE=$(python3 -c "
+    RESULT=$(python3 -c "
 import json, sys
 try:
     s = json.load(open('$HOME/.claude/jobs/$SESSION_ID/state.json'))
-    print(s.get('state', 'unknown'))
-except: print('unknown')
+    state = s.get('state', 'unknown')
+    detail = s.get('detail', '')
+    # Terminal states
+    if state in ('done', 'completed', 'stopped', 'failed'):
+        print(f'TERMINAL:{state}')
+    # Blocked = agent waiting for input. If it has output, it's done.
+    elif state == 'blocked':
+        print(f'BLOCKED:{detail}')
+    else:
+        print(f'RUNNING:{state}')
+except:
+    print('RUNNING:unknown')
 " 2>/dev/null)
-    if [ "$STATE" = "done" ] || [ "$STATE" = "completed" ] || [ "$STATE" = "stopped" ] || [ "$STATE" = "failed" ]; then
-        echo "DONE: $STATE"
-        break
-    fi
+
+    case "$RESULT" in
+        TERMINAL:*)
+            echo "DONE: ${RESULT#TERMINAL:}"
+            break
+            ;;
+        BLOCKED:*)
+            echo "Agent blocked: ${RESULT#BLOCKED:}"
+            # Agent finished but asking follow-up — stop it
+            claude stop $SESSION_ID 2>/dev/null
+            echo "DONE: auto-stopped (was blocked)"
+            break
+            ;;
+    esac
     sleep 15
 done
 ```
@@ -199,6 +225,7 @@ Search for papers relevant to: <IDEA>
    }
 
 6. Do NOT modify any project code. Only write to results/.
+7. When done, print TASK_COMPLETE and stop. Do NOT ask follow-up questions or wait for input.
 " 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
@@ -292,6 +319,7 @@ Read progress.md in the project root. This is the research memory — it shows w
 6. When done, write a summary to results/impl_summary.json:
    {\"hypothesis\": \"...\", \"change_summary\": \"...\", \"files_modified\": [...], \"papers_used\": [...]}
 7. Do NOT commit or push. Only edit code and write the summary.
+8. When done, print TASK_COMPLETE and stop. Do NOT ask follow-up questions or wait for input.
 " 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
@@ -362,6 +390,8 @@ export PYTHONPATH=\"\$HOME/.claude/skills/idea-iter:\$PYTHONPATH\"
 4. Report which GPU was selected and the PID.
 
 If no GPUs are available, report that and exit — do NOT wait.
+
+When done, print TASK_COMPLETE and stop. Do NOT ask follow-up questions or wait for input.
 " 2>&1 | grep "backgrounded" | awk '{print $NF}'
 ```
 
