@@ -55,7 +55,7 @@ try:
     print(s.get('state', 'unknown'))
 except: print('unknown')
 " 2>/dev/null)
-    if [ "$STATE" = "completed" ] || [ "$STATE" = "stopped" ] || [ "$STATE" = "failed" ]; then
+    if [ "$STATE" = "done" ] || [ "$STATE" = "completed" ] || [ "$STATE" = "stopped" ] || [ "$STATE" = "failed" ]; then
         echo "DONE: $STATE"
         break
     fi
